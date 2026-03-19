@@ -19,8 +19,7 @@
   2. Penalty algorithm correctly flags "No-Go" conditions based on input thresholds.
   3. API returns a structured JSON assessment (Go/Caution/No-Go) with human-readable justifications.
 **Plans**:
-- [ ] 01-01-PLAN.md — Project setup, models, and AssessmentEngine logic.
-- [ ] 01-02-PLAN.md — Open-Meteo integration, API endpoint, and testing.
+- [ ] 01-01-PLAN.md — Core Engine foundation, models, logic, and API.
 
 ### Phase 2: Notification System (Webhooks)
 **Goal**: Enable the system to push assessments to external messaging platforms.
@@ -66,7 +65,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Engine | 0/2 | In progress | - |
+| 1. Core Engine | 0/1 | In progress | - |
 | 2. Notifications | 0/0 | Not started | - |
 | 3. Web UI | 0/0 | Not started | - |
 | 4. Persistence | 0/0 | Not started | - |
