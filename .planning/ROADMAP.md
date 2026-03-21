@@ -2,49 +2,20 @@
 
 ## Milestones
 
-- [v1.0 - Core MVP](./milestones/v1.0-ROADMAP.md) - Shipped 2026-03-21. (5 phases, 8 plans)
-- **v1.1 - Reliability & Polish** - Current focus.
-- [v1.2 - Multi-User & Analytics](./milestones/v1.2-ROADMAP.md) - Future focus.
+- [v1.0 - Core MVP](./milestones/v1.0-ROADMAP.md) - Shipped 2026-03-21.
+- [v1.1 - Reliability & Polish](./milestones/v1.1-ROADMAP.md) - Shipped 2026-03-21.
+- **v1.2 - Multi-User & Analytics** - Current Focus.
 
 ---
 
-## Phases (v1.1)
+## Phases (v1.2)
 
-- [ ] **Phase 6: Resilience & Backend Optimization** - Implement retries, caching, and state synchronization.
-- [ ] **Phase 7: Advanced Scheduling & Testing** - Support day-of-week selection and webhook testing tools.
-- [ ] **Phase 8: UI/UX & Unit Selection** - Support Celsius/Fahrenheit, improved location picker, and mobile optimizations.
-- [ ] **Phase 9: Notification Ecosystem (Apprise)** - Support dozens of notification services.
+- [ ] **Phase 10: Authentication & Multi-User Support** - Implement user registration, login, and data isolation.
+- [ ] **Phase 11: History & Analytics** - Store assessment history and provide visualizations (e.g., Days Ridden vs Driven).
+- [ ] **Phase 12: Weather Visualizations** - Enhanced graphical representations in the UI.
 
 ---
 
 ## Phase Details
 
-### Phase 6: Resilience & Backend Optimization
-**Goal**: Ensure the system is robust against transient API failures and is highly performant.
-**Requirements**: RELI-RETRY, RELI-CACHE, RELI-VAL, ENG-SYNC
-**Success Criteria**:
-  1. Weather API failures are retried automatically with exponential backoff.
-  2. Weather data is cached for 15 minutes to improve dashboard speed.
-  3. UI updates for configuration are applied immediately to background scheduler jobs.
-
-### Phase 7: Advanced Scheduling & Testing
-**Goal**: Give the user more control over when and how they receive notifications.
-**Requirements**: USER-DAYS, NOTIF-TEST
-**Success Criteria**:
-  1. The user can successfully schedule notifications for specific days (e.g., Weekdays only).
-  2. A "Test Webhook" button in the UI triggers an immediate notification.
-
-### Phase 8: UI/UX & Unit Selection
-**Goal**: Provide a more polished, user-friendly interface for different regions and devices.
-**Requirements**: UI-LOC, UI-UNITS, UI-MOBILE
-**Success Criteria**:
-  1. The UI allows switching between Celsius and Fahrenheit.
-  2. Location can be selected via a more intuitive interface than manual lat/lon.
-  3. The dashboard layout is optimized for mobile browser interaction.
-
-### Phase 9: Notification Ecosystem (Apprise)
-**Goal**: Expand notification reach beyond simple Discord webhooks.
-**Requirements**: NOTIF-APPRISE, ENG-REFINE
-**Success Criteria**:
-  1. Integration with `Apprise` allows the system to send alerts to Telegram and Slack.
-  2. The system supports multiple commute windows (Morning/Evening).
+*(Phase details for v1.2 will be planned via `/gsd:new-milestone` / `/gsd:plan-phase`)*
