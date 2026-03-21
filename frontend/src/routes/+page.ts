@@ -1,48 +1,50 @@
 import type { PageLoad } from './$types';
-import { browser } from '$app/environment';
 
 export const load: PageLoad = async ({ fetch }) => {
-    let lat = 51.5074;
-    let lon = -0.1278;
-    let unitSystem = 'imperial';
-    let queryParams = new URLSearchParams();
-
-    if (browser) {
-        const stored = localStorage.getItem('commute-settings');
-        if (stored) {
-            const settings = JSON.parse(stored);
-            lat = settings.lat || lat;
-            lon = settings.lon || lon;
-            unitSystem = settings.unit_system || unitSystem;
-            if (settings.min_temp_caution) queryParams.append('min_temp_caution', settings.min_temp_caution);
-            if (settings.min_temp_no_go) queryParams.append('min_temp_no_go', settings.min_temp_no_go);
-            if (settings.max_wind_caution) queryParams.append('max_wind_caution', settings.max_wind_caution);
-            if (settings.max_wind_no_go) queryParams.append('max_wind_no_go', settings.max_wind_no_go);
-            if (settings.rain_threshold) queryParams.append('rain_threshold', settings.rain_threshold);
-            if (settings.webhook_url) queryParams.append('webhook_url', settings.webhook_url);
-            queryParams.append('unit_system', unitSystem);
-        }
-    }
-
-    queryParams.append('lat', lat.toString());
-    queryParams.append('lon', lon.toString());
-    
-    // Use an environment variable if available, otherwise default to localhost
-    const backendUrl = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:8000';
     
     try {
-        const response = await fetch(`${backendUrl}/assess?${queryParams.toString()}`);
-        if (!response.ok) {
-            throw new Error('Failed to fetch assessment');
+        // 1. Fetch all commutes
+        const configResponse = await fetch(`${backendUrl}/config`);
+        if (!configResponse.ok) {
+            throw new Error('Failed to load commutes from backend');
         }
-        const data = await response.json();
-        return { assessment: data, unitSystem };
+        
+        const commutes = await configResponse.json();
+        
+        if (!commutes || commutes.length === 0) {
+            return { assessments: [], error: 'No commutes configured. Please visit Settings to create one.' };
+        }
+
+        // 2. Fetch assessment for each commute
+        const assessments = await Promise.all(commutes.map(async (commute: any) => {
+            const queryParams = new URLSearchParams({
+                lat: commute.lat.toString(),
+                lon: commute.lon.toString(),
+                min_temp: commute.min_temp_caution.toString(),
+                max_temp: 95, // Default from main.py if not specified
+                max_wind: commute.max_wind_caution.toString(),
+                max_precip: commute.rain_threshold.toString(),
+                unit_system: commute.unit_system || 'imperial'
+            });
+
+            try {
+                const assessRes = await fetch(`${backendUrl}/assess?${queryParams.toString()}`);
+                if (!assessRes.ok) return { ...commute, assessment: null, error: 'Assessment failed' };
+                const assessmentData = await assessRes.json();
+                return { ...commute, assessment: assessmentData };
+            } catch (e) {
+                return { ...commute, assessment: null, error: 'Network error' };
+            }
+        }));
+
+        return { assessments };
+
     } catch (error) {
         console.error('Fetch error:', error);
         return { 
-            assessment: null,
-            unitSystem,
-            error: 'Could not load weather assessment. Is the backend running?'
+            assessments: [],
+            error: 'Could not load weather assessments. Is the backend running?'
         };
     }
 };

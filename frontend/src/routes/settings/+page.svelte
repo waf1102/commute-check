@@ -3,8 +3,11 @@
 
     const BACKEND_URL = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:8000';
 
-    let settings = $state({
-        name: "My Commute",
+    let commutes = $state([]);
+    let selectedIndex = $state(-1);
+    
+    let defaultSettings = {
+        name: "New Commute",
         unit_system: "imperial",
         min_temp_caution: 40,
         min_temp_no_go: 35,
@@ -16,7 +19,9 @@
         days_of_week: 'mon-fri',
         lat: 51.5074,
         lon: -0.1278
-    });
+    };
+
+    let settings = $state({ ...defaultSettings });
 
     let saved = $state(false);
     let testing = $state(false);
@@ -24,16 +29,35 @@
     let locStatus = $state('');
 
     onMount(async () => {
+        await loadCommutes();
+    });
+
+    async function loadCommutes() {
         try {
             const res = await fetch(`${BACKEND_URL}/config`);
             if (res.ok) {
                 const data = await res.json();
-                Object.assign(settings, data);
+                commutes = data;
+                if (commutes.length > 0 && selectedIndex === -1) {
+                    selectCommute(0);
+                } else if (commutes.length === 0) {
+                    addNewCommute();
+                }
             }
         } catch (e) {
-            console.error("Failed to load config from backend", e);
+            console.error("Failed to load configs from backend", e);
         }
-    });
+    }
+
+    function selectCommute(index: number) {
+        selectedIndex = index;
+        settings = JSON.parse(JSON.stringify(commutes[index]));
+    }
+
+    function addNewCommute() {
+        selectedIndex = -1;
+        settings = { ...defaultSettings };
+    }
 
     async function saveSettings(e: Event) {
         e.preventDefault();
@@ -46,13 +70,31 @@
             if (res.ok) {
                 saved = true;
                 setTimeout(() => saved = false, 3000);
+                await loadCommutes();
+                if (selectedIndex === -1) {
+                    selectCommute(commutes.length - 1);
+                }
             }
         } catch (e) {
             console.error("Failed to save config to backend", e);
         }
-        
-        // Keep localStorage as a fallback for the main dashboard for now
-        localStorage.setItem('commute-settings', JSON.stringify(settings));
+    }
+
+    async function deleteCommute() {
+        if (!settings.id) return;
+        if (!confirm("Are you sure you want to delete this commute?")) return;
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/config/${settings.id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                selectedIndex = -1;
+                await loadCommutes();
+            }
+        } catch (e) {
+            console.error("Failed to delete config", e);
+        }
     }
 
     async function testWebhook() {
@@ -101,11 +143,31 @@
     }
 </script>
 
-<div class="container">
-    <h1>Settings</h1>
-    
-    <div class="card">
+<div class="container layout">
+    <div class="sidebar card">
+        <h3>Your Commutes</h3>
+        <ul class="commute-list">
+            {#each commutes as commute, i}
+                <li>
+                    <button type="button" class="list-btn {i === selectedIndex ? 'active' : ''}" onclick={() => selectCommute(i)}>
+                        {commute.name} ({commute.schedule_time})
+                    </button>
+                </li>
+            {/each}
+        </ul>
+        <button type="button" class="add-btn" onclick={addNewCommute}>+ Add New Commute</button>
+    </div>
+
+    <div class="main-content card">
+        <h1>{settings.id ? 'Edit Commute' : 'New Commute'}</h1>
         <form onsubmit={saveSettings}>
+            <div class="field">
+                <label for="name">Commute Name</label>
+                <input type="text" id="name" bind:value={settings.name} required>
+            </div>
+
+            <hr>
+
             <h3>Preferences</h3>
             <div class="field">
                 <label for="unit_system">Unit System</label>
@@ -169,8 +231,8 @@
 
             <h3>Notification & Scheduling</h3>
             <div class="field">
-                <label for="webhook">Webhook URL (Discord/Generic)</label>
-                <input type="url" id="webhook" placeholder="https://discord.com/api/webhooks/..." bind:value={settings.webhook_url}>
+                <label for="webhook">Notification URL (Apprise Compatible)</label>
+                <input type="url" id="webhook" placeholder="discord://... or tgram://..." bind:value={settings.webhook_url}>
             </div>
             <div class="field">
                 <label for="time">Notification Time</label>
@@ -182,8 +244,11 @@
             </div>
 
             <div class="actions">
-                <button type="submit">Save Settings</button>
-                <button type="button" class="secondary" onclick={testWebhook} disabled={testing}>Test Webhook</button>
+                <button type="submit">Save Commute</button>
+                <button type="button" class="secondary" onclick={testWebhook} disabled={testing}>Test Notification</button>
+                {#if settings.id}
+                    <button type="button" class="danger" onclick={deleteCommute}>Delete</button>
+                {/if}
                 
                 {#if saved}
                     <span class="saved-msg">✅ Saved!</span>
@@ -197,6 +262,60 @@
 </div>
 
 <style>
+    .layout {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+    }
+
+    @media (max-width: 768px) {
+        .layout {
+            flex-direction: column;
+        }
+        .sidebar, .main-content {
+            width: 100%;
+            box-sizing: border-box;
+        }
+    }
+
+    .sidebar {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .main-content {
+        flex: 3;
+    }
+
+    .commute-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 20px 0;
+    }
+
+    .commute-list li {
+        margin-bottom: 5px;
+    }
+
+    .list-btn {
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+
+    .list-btn.active {
+        background: var(--primary);
+        color: white;
+        border-color: var(--primary);
+    }
+
+    .add-btn {
+        width: 100%;
+        background-color: var(--status-go);
+    }
+
     .field {
         margin-bottom: 15px;
         display: flex;
@@ -257,6 +376,10 @@
     
     button.secondary {
         background-color: #6c757d;
+    }
+
+    button.danger {
+        background-color: var(--status-nogo);
     }
 
     button.small-btn {
