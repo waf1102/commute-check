@@ -15,7 +15,7 @@
 
 ---
 
-## v1.1 - Multi-User & Analytics (Target: Q2 2026)
+## v1.2 - Multi-User & Analytics (Target: Q2 2026)
 
 **Goal:** Transform the core engine into a multi-user service with authentication and detailed history.
 

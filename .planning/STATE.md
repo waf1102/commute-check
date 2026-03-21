@@ -1,60 +1,50 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-last_updated: "2026-03-21T14:53:15.183Z"
+milestone: v1.1
+milestone_name: Reliability & Polish
+status: active
+last_updated: "2026-03-21T15:30:00.000Z"
 progress:
-  total_phases: 5
+  total_phases: 4
   completed_phases: 0
-  total_plans: 6
-  completed_plans: 1
+  total_plans: 0
+  completed_plans: 0
 ---
 
-# Project State: Commute Check
+# Project State: Commute Check (v1.1)
 
 ## Project Reference
 
 **Core Value**: A weather-based Go/No-Go decision engine for motorcycle riders to automate morning safety assessments.
-**Current Focus**: Milestone Complete
+**Current Focus**: v1.1 - Resilience & Backend Optimization
 
 ## Current Position
 
-- **Phase**: 5 - Containerization (Docker)
-- **Plan**: 05-02-PLAN.md (Dockerize Frontend & Compose)
-- **Status**: Milestone Complete
-- **Progress**: [==========] 100% (Phase 5)
+- **Phase**: 6 - Resilience & Backend Optimization
+- **Plan**: Not Started
+- **Status**: Planning
+- **Progress**: [----------] 0%
 
 ## Performance Metrics
 
-- Phase 1 Completion: 100%
-- Phase 2 Completion: 100%
-- Phase 3 Completion: 100%
-- Phase 4 Completion: 100%
-- Phase 5 Completion: 100%
-- Requirement Coverage: 100% mapped (100% implemented for Phase 1-5)
-- Time to Assessment: Target < 2s
+- Milestone v1.0: 100% Completed
+- Requirement Coverage (v1.1): 0%
+- Current Uptime Target: 99.9% (Notifications)
 
 ## Accumulated Context
 
 ### Decisions
 
-- **D-001**: Use FastAPI for backend (speed and async support).
-- **D-002**: Use Open-Meteo for weather data (no API key required).
-- **D-003**: Use SvelteKit for frontend (lightweight and snappy).
-- **D-004**: Use SQLite for persistence (simple deployment).
-- **D-005**: Use APScheduler AsyncIOScheduler for background tasks.
-- **D-006**: Use SQLModel for database models and CRUD operations.
-- **D-007**: Multi-container Docker orchestration with persistent volumes.
+- **D-008**: Use `tenacity` for retry logic.
+- **D-009**: Use `Apprise` for multi-platform notifications.
+- **D-010**: Integrate Celsius/Fahrenheit toggle in UI and backend models.
 
 ### Todos
 
-- [x] Phase 1: Core Engine logic and API.
-- [x] Phase 2: Webhook notification system.
-- [x] Phase 3: SvelteKit user configuration UI.
-- [x] Phase 4: SQLite persistence and APScheduler integration.
-- [x] Phase 5 Plan 1: Dockerize backend.
-- [x] Phase 5 Plan 2: Dockerize frontend and compose.
+- [ ] Phase 6: Resilience & Backend Optimization.
+- [ ] Phase 7: Advanced Scheduling & Testing.
+- [ ] Phase 8: UI/UX & Unit Selection.
+- [ ] Phase 9: Notification Ecosystem (Apprise).
 
 ### Blockers
 
@@ -62,5 +52,5 @@ progress:
 
 ## Session Continuity
 
-**Last session**: Phase 5-2 frontend containerization and compose completed.
-**Next steps**: Milestone audit and completion.
+**Last session**: Milestone v1.0 archived. Milestone v1.1 initialized with new requirements (Retries, Caching, Units, Location Picker, Days of Week, Webhook Test).
+**Next steps**: `/gsd:plan-phase 6` to begin implementation of resilience features.

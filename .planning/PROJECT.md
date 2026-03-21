@@ -5,16 +5,21 @@ A multi-user Go/No-Go decision engine for motorcycle riders that evaluates real-
 
 ## Current State (v1.0 - Core MVP)
 - **Shipped:** 2026-03-21
-- **Core Engine:** FastAPI backend with async weather data fetching and a safety-first assessment algorithm.
-- **Notification System:** Discord and generic webhook integration.
-- **Web Dashboard:** SvelteKit frontend for real-time status and configuration.
-- **Persistence:** SQLite/SQLModel integration with APScheduler for daily checks.
-- **Infrastructure:** Fully containerized with Docker Compose.
+- **Core Engine:** FastAPI backend with async weather data fetching.
+- **Notification System:** Discord/webhook integration.
+- **Web Dashboard:** SvelteKit frontend for monitoring.
+- **Infrastructure:** Dockerized with SQLite persistence.
 
-## Next Milestone: v1.1 - Multi-User & Analytics
+## Next Milestone: v1.1 - Reliability & Polish
+- **Goal:** Harden the system and improve the single-user experience.
+- **Resilience:** Retry logic for weather API and webhooks; weather data caching.
+- **Enhanced Notifications:** Webhook testing tool and scheduling by day of the week.
+- **UI/UX Polish:** Improved location picker (map or search), temperature unit selection (F/C), and mobile optimization.
+- **Notification Ecosystem:** Integrate `Apprise` for 50+ service support (Telegram, Slack, etc.).
+
+## Future Milestone: v1.2 - Multi-User & Analytics
 - Multi-user support with authentication (Phase 6).
 - Historical logs and riding analytics (Phase 7).
-- Enhanced weather visualizations in the UI.
 - Support for multiple daily commute profiles.
 
 ## Tech Stack
@@ -29,3 +34,4 @@ A multi-user Go/No-Go decision engine for motorcycle riders that evaluates real-
 - **Webhook Integration:** Discord/generic webhook support.
 - **Assessment Engine:** Context-aware penalty algorithm for "miserable conditions."
 - **Automated Scheduler:** Daily automated commute checks.
+
