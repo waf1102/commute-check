@@ -1,4 +1,4 @@
-import httpx
+import apprise
 import logging
 from typing import Dict, Any, List
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -8,84 +8,75 @@ logger = logging.getLogger(__name__)
 
 class NotificationService:
     def __init__(self):
-        self.discord_color_map = {
-            Status.GO: 3066993,
-            Status.CAUTION: 16776960,
-            Status.NO_GO: 15158332
-        }
+        pass
 
-    def _format_discord_payload(self, assessment: AssessmentResult) -> Dict[str, Any]:
+    def _format_message(self, assessment: AssessmentResult) -> tuple[str, str]:
         """
-        Formats the assessment result into a Discord rich embed payload.
+        Formats the assessment result into a title and body.
         """
-        color = self.discord_color_map.get(assessment.status, 3066993)
+        title = f"🏍️ Commute Check: {assessment.status.value}"
         
-        fields = [
-            {"name": "Score", "value": f"{assessment.score}/100", "inline": True},
-        ]
+        body = assessment.recommendation + "\n\n"
+        body += f"Score: {assessment.score}/100\n"
         
         if assessment.details:
-            fields.extend([
-                {"name": "Temperature", "value": f"{assessment.details.temperature}°F", "inline": True},
-                {"name": "Wind", "value": f"{assessment.details.wind_speed} mph", "inline": True},
-                {"name": "Rain Prob", "value": f"{assessment.details.precip_prob}%", "inline": True},
-            ])
+            body += f"Temp: {assessment.details.temperature}°F, Wind: {assessment.details.wind_speed} mph, Rain: {assessment.details.precip_prob}%\n"
             
         if assessment.reasons:
             reasons_str = "\n".join([f"• {r}" for r in assessment.reasons])
-            fields.append({"name": "Reasons", "value": reasons_str, "inline": False})
-
-        return {
-            "embeds": [
-                {
-                    "title": f"🏍️ Commute Check: {assessment.status.value}",
-                    "description": assessment.recommendation,
-                    "color": color,
-                    "fields": fields
-                }
-            ]
-        }
-
-    def _format_generic_payload(self, assessment: AssessmentResult) -> Dict[str, Any]:
-        """
-        Formats the assessment result into a generic JSON payload.
-        """
-        return assessment.model_dump()
+            body += f"\nReasons:\n{reasons_str}"
+            
+        return title, body
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     async def send_notification(self, webhook_url: str, assessment: AssessmentResult) -> bool:
         """
-        Sends a notification to the provided webhook URL.
-        Detects Discord URLs and formats accordingly.
+        Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
-        is_discord = "discord.com/api/webhooks" in webhook_url
-        
-        if is_discord:
-            payload = self._format_discord_payload(assessment)
-        else:
-            payload = self._format_generic_payload(assessment)
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(webhook_url, json=payload)
-            response.raise_for_status()
-            return True
+        # Apprise is synchronous, we'll run it in the current thread for now
+        # as it's called from an async context in the scheduler.
+        return self.send_notification_sync(webhook_url, assessment)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     def send_notification_sync(self, webhook_url: str, assessment: AssessmentResult) -> bool:
         """
-        Sends a notification to the provided webhook URL.
-        Detects Discord URLs and formats accordingly.
+        Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
-        is_discord = "discord.com/api/webhooks" in webhook_url
+        apobj = apprise.Apprise()
         
-        if is_discord:
-            payload = self._format_discord_payload(assessment)
-        else:
-            payload = self._format_generic_payload(assessment)
-
-        with httpx.Client() as client:
-            response = client.post(webhook_url, json=payload)
-            response.raise_for_status()
-            return True
+        # If it's a raw Discord/Slack URL, Apprise often needs the protocol prefix
+        # but it can also handle some raw URLs if added correctly.
+        if not (webhook_url.startswith("http://") or webhook_url.startswith("https://")) and "://" not in webhook_url:
+            # If no protocol and not a standard URL, it might be an Apprise service ID
+            pass
+            
+        apobj.add(webhook_url)
+        
+        title, body = self._format_message(assessment)
+        
+        # Map Status to Apprise notify type
+        notify_type = apprise.NotifyType.INFO
+        if assessment.status == Status.GO:
+            notify_type = apprise.NotifyType.SUCCESS
+        elif assessment.status == Status.CAUTION:
+            notify_type = apprise.NotifyType.WARNING
+        elif assessment.status == Status.NO_GO:
+            notify_type = apprise.NotifyType.FAILURE
+            
+        success = apobj.notify(
+            body=body,
+            title=title,
+            notify_type=notify_type,
+        )
+        
+        if not success:
+             # If apobj has no services, it returns False.
+             # If it fails to send, it returns False.
+             logger.error(f"Failed to send notification via Apprise to {webhook_url}")
+             # We raise an exception to trigger tenacity retry if it failed
+             if len(apobj) > 0:
+                 raise Exception(f"Apprise failed to deliver notification to {webhook_url}")
+             
+        return success
