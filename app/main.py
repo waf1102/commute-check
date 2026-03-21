@@ -7,7 +7,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from contextlib import asynccontextmanager
 import os
 
-from .models import Commute, CommuteCreate, AssessmentResult
+from .models import Commute, CommuteCreate, AssessmentResult, UnitSystem
 from .engine import AssessmentEngine
 from .client import WeatherClient
 from .notifications import NotificationService
@@ -33,7 +33,7 @@ async def run_commute_check(commute_id: int):
             return
 
         print(f"Running assessment for commute: {commute.name}")
-        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon)
+        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon, commute.unit_system)
         assessment = engine_instance.assess(weather, commute)
         
         if commute.webhook_url:
@@ -93,21 +93,33 @@ app.add_middleware(
 def health_check():
     return {"status": "healthy"}
 
+@app.get("/config", response_model=List[Commute])
+def read_config(session: Session = Depends(get_session)):
+    commutes = session.exec(select(Commute)).all()
+    return commutes
+
 @app.post("/config", response_model=Commute)
-def create_or_update_config(commute: CommuteCreate, session: Session = Depends(get_session)):
-    # For this project, we assume a single user configuration.
-    existing_commute = session.exec(select(Commute)).first()
-    
-    if existing_commute:
-        update_data = commute.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(existing_commute, key, value)
-        session.add(existing_commute)
-        session.commit()
-        session.refresh(existing_commute)
-        commute_to_return = existing_commute
+def create_or_update_config(commute_data: Commute, session: Session = Depends(get_session)):
+    if commute_data.id:
+        existing_commute = session.get(Commute, commute_data.id)
+        if existing_commute:
+            update_data = commute_data.model_dump(exclude_unset=True)
+            for key, value in update_data.items():
+                setattr(existing_commute, key, value)
+            session.add(existing_commute)
+            session.commit()
+            session.refresh(existing_commute)
+            commute_to_return = existing_commute
+        else:
+            # ID provided but not found, treat as new
+            commute_data.id = None
+            new_commute = Commute.model_validate(commute_data)
+            session.add(new_commute)
+            session.commit()
+            session.refresh(new_commute)
+            commute_to_return = new_commute
     else:
-        new_commute = Commute.model_validate(commute)
+        new_commute = Commute.model_validate(commute_data)
         session.add(new_commute)
         session.commit()
         session.refresh(new_commute)
@@ -118,12 +130,21 @@ def create_or_update_config(commute: CommuteCreate, session: Session = Depends(g
     
     return commute_to_return
 
-@app.get("/config", response_model=Commute)
-def read_config(session: Session = Depends(get_session)):
-    commute = session.exec(select(Commute)).first()
+@app.delete("/config/{commute_id}")
+def delete_config(commute_id: int, session: Session = Depends(get_session)):
+    commute = session.get(Commute, commute_id)
     if not commute:
-        raise HTTPException(status_code=404, detail="Configuration not found")
-    return commute
+        raise HTTPException(status_code=404, detail="Commute not found")
+    
+    session.delete(commute)
+    session.commit()
+    
+    # Remove from scheduler
+    job_id = f"commute_check_{commute_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+        
+    return {"status": "deleted"}
 
 @app.get("/assess", response_model=AssessmentResult)
 async def assess_weather(
@@ -132,13 +153,14 @@ async def assess_weather(
     min_temp: float = 45.0, 
     max_temp: float = 95.0, 
     max_wind: float = 15.0, 
-    max_precip: float = 30.0
+    max_precip: float = 30.0,
+    unit_system: UnitSystem = UnitSystem.IMPERIAL
 ):
     """
     Manually assess weather for given coordinates and thresholds.
     """
     try:
-        weather = await client_instance.get_hourly_weather(lat, lon)
+        weather = await client_instance.get_hourly_weather(lat, lon, unit_system)
     except Exception as e:
         print(f"Weather API error: {e}")
         raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
@@ -153,7 +175,8 @@ async def assess_weather(
         min_temp_no_go=min_temp - 7.0,
         max_wind_caution=max_wind,
         max_wind_no_go=max_wind + 10.0,
-        rain_threshold=max_precip
+        rain_threshold=max_precip,
+        unit_system=unit_system
     )
     
     assessment = engine_instance.assess(weather, thresholds)
@@ -165,7 +188,7 @@ async def test_webhook(commute: CommuteCreate):
     Manually trigger a notification test for given coordinates and thresholds.
     """
     try:
-        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon)
+        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon, commute.unit_system)
     except Exception as e:
         print(f"Weather API error: {e}")
         raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
