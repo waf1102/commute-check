@@ -1,10 +1,25 @@
 import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from cachetools import TTLCache
 from .models import HourlyWeather
 
 class WeatherClient:
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
 
+    def __init__(self):
+        # Cache for weather results, 15 minute TTL
+        self._cache = TTLCache(maxsize=100, ttl=900)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(httpx.HTTPError)
+    )
     async def get_hourly_weather(self, lat: float, lon: float) -> HourlyWeather:
+        cache_key = f"{lat}_{lon}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
         params = {
             "latitude": lat,
             "longitude": lon,
@@ -22,7 +37,7 @@ class WeatherClient:
             
             hourly = data.get("hourly", {})
             
-            return HourlyWeather(
+            result = HourlyWeather(
                 temperature=hourly.get("temperature_2m", [0])[0],
                 apparent_temp=hourly.get("apparent_temperature", [0])[0],
                 wind_speed=hourly.get("wind_speed_10m", [0])[0],
@@ -30,8 +45,19 @@ class WeatherClient:
                 precip_prob=hourly.get("precipitation_probability", [0])[0],
                 weather_code=hourly.get("weather_code", [0])[0]
             )
+            self._cache[cache_key] = result
+            return result
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(httpx.HTTPError)
+    )
     def get_hourly_weather_sync(self, lat: float, lon: float) -> HourlyWeather:
+        cache_key = f"{lat}_{lon}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
         params = {
             "latitude": lat,
             "longitude": lon,
@@ -49,7 +75,7 @@ class WeatherClient:
             
             hourly = data.get("hourly", {})
             
-            return HourlyWeather(
+            result = HourlyWeather(
                 temperature=hourly.get("temperature_2m", [0])[0],
                 apparent_temp=hourly.get("apparent_temperature", [0])[0],
                 wind_speed=hourly.get("wind_speed_10m", [0])[0],
@@ -57,3 +83,5 @@ class WeatherClient:
                 precip_prob=hourly.get("precipitation_probability", [0])[0],
                 weather_code=hourly.get("weather_code", [0])[0]
             )
+            self._cache[cache_key] = result
+            return result
