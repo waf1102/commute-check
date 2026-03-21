@@ -7,3 +7,5 @@ pytest-asyncio
 sqlmodel
 apscheduler
 cryptography
+tenacity
+cachetools
