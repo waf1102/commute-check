@@ -1,6 +1,7 @@
 import httpx
 import logging
 from typing import Dict, Any, List
+from tenacity import retry, stop_after_attempt, wait_exponential
 from .models import Status, AssessmentResult
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,12 @@ class NotificationService:
         """
         return assessment.model_dump()
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     async def send_notification(self, webhook_url: str, assessment: AssessmentResult) -> bool:
         """
         Sends a notification to the provided webhook URL.
         Detects Discord URLs and formats accordingly.
+        Retries up to 3 times with exponential backoff.
         """
         is_discord = "discord.com/api/webhooks" in webhook_url
         
@@ -63,19 +66,17 @@ class NotificationService:
         else:
             payload = self._format_generic_payload(assessment)
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(webhook_url, json=payload)
-                response.raise_for_status()
-                return True
-        except Exception as e:
-            logger.error(f"Failed to send notification to {webhook_url}: {e}")
-            return False
+        async with httpx.AsyncClient() as client:
+            response = await client.post(webhook_url, json=payload)
+            response.raise_for_status()
+            return True
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     def send_notification_sync(self, webhook_url: str, assessment: AssessmentResult) -> bool:
         """
         Sends a notification to the provided webhook URL.
         Detects Discord URLs and formats accordingly.
+        Retries up to 3 times with exponential backoff.
         """
         is_discord = "discord.com/api/webhooks" in webhook_url
         
@@ -84,11 +85,7 @@ class NotificationService:
         else:
             payload = self._format_generic_payload(assessment)
 
-        try:
-            with httpx.Client() as client:
-                response = client.post(webhook_url, json=payload)
-                response.raise_for_status()
-                return True
-        except Exception as e:
-            logger.error(f"Failed to send notification to {webhook_url}: {e}")
-            return False
+        with httpx.Client() as client:
+            response = client.post(webhook_url, json=payload)
+            response.raise_for_status()
+            return True
