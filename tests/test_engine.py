@@ -1,0 +1,99 @@
+import pytest
+from app.models import Status, HourlyWeather, Commute
+from app.engine import AssessmentEngine
+
+@pytest.fixture
+def engine():
+    return AssessmentEngine()
+
+@pytest.fixture
+def thresholds():
+    return Commute(lat=0.0, lon=0.0, schedule_time="08:00")
+
+def test_perfect_day(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=75.0,
+        apparent_temp=75.0,
+        wind_speed=5.0,
+        wind_gusts=7.0,
+        precip_prob=0.0,
+        weather_code=0
+    )
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.GO
+    assert result.score == 100
+    assert "Clear conditions" in result.reasons
+
+def test_ice_risk(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=32.0,
+        apparent_temp=30.0,
+        wind_speed=10.0,
+        wind_gusts=15.0,
+        precip_prob=0.0,
+        weather_code=0
+    )
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.NO_GO
+    assert result.score == 0
+    assert "Temperature below safety threshold (ice risk)" in result.reasons
+
+def test_gale_wind(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=60.0,
+        apparent_temp=60.0,
+        wind_speed=40.0,
+        wind_gusts=50.0,
+        precip_prob=0.0,
+        weather_code=0
+    )
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.NO_GO
+    assert result.score == 0
+    assert "Extreme wind speeds" in result.reasons
+
+def test_high_rain_probability(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=65.0,
+        apparent_temp=65.0,
+        wind_speed=10.0,
+        wind_gusts=15.0,
+        precip_prob=80.0,
+        weather_code=3
+    )
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.NO_GO
+    assert "High probability of rain" in result.reasons
+
+def test_chilly_morning_caution(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=45.0,
+        apparent_temp=38.0, # Wind chill
+        wind_speed=10.0,
+        wind_gusts=15.0,
+        precip_prob=0.0,
+        weather_code=0
+    )
+    # Default thresholds for Commute: min_temp_caution=45.0, min_temp_no_go=38.0
+    # Wait, apparent_temp=38.0 is min_temp_no_go.
+    # AssessmentEngine: if weather.apparent_temp < thresholds.min_temp_no_go: status=NO_GO
+    # If apparent_temp is 38.0, it is NOT < 38.0.
+    # Then: if weather.apparent_temp < thresholds.min_temp_caution: score -= 30, reasons.append("Low temperature")
+    # 38.0 < 45.0 is true. score = 100 - 30 = 70.
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.CAUTION
+    assert result.score == 70
+    assert "Low temperature" in result.reasons
+
+def test_dangerous_weather_code(engine, thresholds):
+    weather = HourlyWeather(
+        temperature=45.0,
+        apparent_temp=40.0,
+        wind_speed=10.0,
+        wind_gusts=15.0,
+        precip_prob=10.0,
+        weather_code=95 # Thunderstorm
+    )
+    result = engine.assess(weather, thresholds)
+    assert result.status == Status.NO_GO
+    assert "Dangerous weather conditions (snow/storm)" in result.reasons

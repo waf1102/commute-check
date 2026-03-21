@@ -71,3 +71,24 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Failed to send notification to {webhook_url}: {e}")
             return False
+
+    def send_notification_sync(self, webhook_url: str, assessment: AssessmentResult) -> bool:
+        """
+        Sends a notification to the provided webhook URL.
+        Detects Discord URLs and formats accordingly.
+        """
+        is_discord = "discord.com/api/webhooks" in webhook_url
+        
+        if is_discord:
+            payload = self._format_discord_payload(assessment)
+        else:
+            payload = self._format_generic_payload(assessment)
+
+        try:
+            with httpx.Client() as client:
+                response = client.post(webhook_url, json=payload)
+                response.raise_for_status()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to send notification to {webhook_url}: {e}")
+            return False

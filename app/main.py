@@ -1,44 +1,159 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
-from typing import Optional
-from .models import UserThresholds, AssessmentResult
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import Session, select
+from typing import List, AsyncGenerator
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from contextlib import asynccontextmanager
+import os
+
+from .models import Commute, CommuteCreate, AssessmentResult
 from .engine import AssessmentEngine
 from .client import WeatherClient
 from .notifications import NotificationService
+from .database import engine, get_session, create_db_and_tables
 
-app = FastAPI(title="Commute Check API")
-engine = AssessmentEngine()
-client = WeatherClient()
-notification_service = NotificationService()
+# --- Scheduler Setup ---
+JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
+jobstores = {
+    'default': SQLAlchemyJobStore(url=JOBS_DB_URL)
+}
+scheduler = AsyncIOScheduler(jobstores=jobstores)
 
-@app.get("/assess", response_model=AssessmentResult)
-async def assess_commute(
-    lat: float = Query(..., description="Latitude of the location"),
-    lon: float = Query(..., description="Longitude of the location"),
-    webhook_url: Optional[str] = Query(None, description="Optional webhook URL for notifications"),
-    background_tasks: BackgroundTasks = None
-):
-    """
-    Triggers the riding assessment for the given location using current weather data.
-    """
-    try:
-        # 1. Fetch hourly weather data from Open-Meteo
-        weather = await client.get_hourly_weather(lat, lon)
+engine_instance = AssessmentEngine()
+client_instance = WeatherClient()
+notification_service_instance = NotificationService()
+
+async def run_commute_check(commute_id: int):
+    """ Fetch commute, run assessment, and send notification. """
+    with Session(engine) as session:
+        commute = session.get(Commute, commute_id)
+        if not commute:
+            print(f"Error: Could not find commute with id {commute_id}")
+            return
+
+        print(f"Running assessment for commute: {commute.name}")
+        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon)
+        assessment = engine_instance.assess(weather, commute)
         
-        # 2. Apply the assessment engine logic with default thresholds
-        thresholds = UserThresholds() # Default thresholds for MVP
-        
-        # 3. Compute the assessment result
-        assessment = engine.assess(weather, thresholds)
-        
-        # 4. Trigger notification if webhook_url is provided
-        if webhook_url and background_tasks:
-            background_tasks.add_task(notification_service.send_notification, webhook_url, assessment)
+        if commute.webhook_url:
+            await notification_service_instance.send_notification(commute.webhook_url, assessment)
+        print(f"Assessment complete for {commute.name}. Score: {assessment.score}")
+
+def schedule_commute_check(commute: Commute):
+    """Adds or updates a job in the scheduler for a given commute."""
+    job_id = f"commute_check_{commute.id}"
+    
+    scheduler.add_job(
+        run_commute_check,
+        'cron',
+        hour=commute.schedule_time.split(':')[0],
+        minute=commute.schedule_time.split(':')[1],
+        id=job_id,
+        args=[commute.id],
+        replace_existing=True,
+    )
+    print(f"Scheduled job '{job_id}' to run daily at {commute.schedule_time}.")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    create_db_and_tables()
+    scheduler.start()
+    
+    # Schedule existing commutes
+    with Session(engine) as session:
+        commutes = session.exec(select(Commute)).all()
+        for commute in commutes:
+            print(f"Scheduling job for existing commute: {commute.name}")
+            schedule_commute_check(commute)
             
-        return assessment
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    yield
+    # Shutdown logic
+    scheduler.shutdown()
+
+# --- FastAPI App ---
+app = FastAPI(
+    title="Commute Check API",
+    lifespan=lifespan
+)
+
+# CORS Middleware
+origins = ["http://localhost:5173", "http://localhost:3000"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.post("/config", response_model=Commute)
+def create_or_update_config(commute: CommuteCreate, session: Session = Depends(get_session)):
+    # For this project, we assume a single user configuration.
+    existing_commute = session.exec(select(Commute)).first()
+    
+    if existing_commute:
+        update_data = commute.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(existing_commute, key, value)
+        session.add(existing_commute)
+        session.commit()
+        session.refresh(existing_commute)
+        commute_to_return = existing_commute
+    else:
+        new_commute = Commute.model_validate(commute)
+        session.add(new_commute)
+        session.commit()
+        session.refresh(new_commute)
+        commute_to_return = new_commute
+    
+    # After creating/updating, reschedule the job
+    schedule_commute_check(commute_to_return)
+    
+    return commute_to_return
+
+@app.get("/config", response_model=Commute)
+def read_config(session: Session = Depends(get_session)):
+    commute = session.exec(select(Commute)).first()
+    if not commute:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return commute
+
+@app.get("/assess", response_model=AssessmentResult)
+async def assess_weather(
+    lat: float, 
+    lon: float, 
+    min_temp: float = 45.0, 
+    max_temp: float = 95.0, 
+    max_wind: float = 15.0, 
+    max_precip: float = 30.0
+):
+    """
+    Manually assess weather for given coordinates and thresholds.
+    """
+    try:
+        weather = await client_instance.get_hourly_weather(lat, lon)
+    except Exception as e:
+        print(f"Weather API error: {e}")
+        raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
+    
+    # Create a temporary Commute object to hold thresholds for the assessment engine.
+    # We use some heuristic mapping for the 'no_go' thresholds based on caution inputs.
+    thresholds = Commute(
+        lat=lat,
+        lon=lon,
+        schedule_time="08:00", # Dummy schedule
+        min_temp_caution=min_temp,
+        min_temp_no_go=min_temp - 7.0,
+        max_wind_caution=max_wind,
+        max_wind_no_go=max_wind + 10.0,
+        rain_threshold=max_precip
+    )
+    
+    assessment = engine_instance.assess(weather, thresholds)
+    return assessment

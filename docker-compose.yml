@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///data/commute_check.db
+      - JOBS_DB_URL=sqlite:///data/jobs.db
+    volumes:
+      - commute_data:/app/data
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  commute_data:

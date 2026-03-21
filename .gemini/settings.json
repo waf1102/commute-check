@@ -1,0 +1,33 @@
+{
+  "general": {
+    "defaultApprovalMode": "auto_edit"
+  },
+  "ui": {
+    "showMemoryUsage": true
+  },
+  "shell": {
+    "allowlist": [
+      "date",
+      "echo",
+      "cat",
+      "ls",
+      "mkdir",
+      "wc",
+      "cp",
+      "mv",
+      "head",
+      "tail",
+      "sort",
+      "grep",
+      "tr",
+      "git add",
+      "git commit",
+      "git status",
+      "git log",
+      "git diff",
+      "git tag",
+      "node",
+      "find"
+    ]
+  }
+}
