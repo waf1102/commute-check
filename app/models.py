@@ -30,6 +30,7 @@ class CommuteBase(SQLModel):
     lon: float
     webhook_url: Optional[str] = None
     schedule_time: str # HH:MM format
+    days_of_week: str = "mon-fri"
     min_temp_caution: float = 45.0
     min_temp_no_go: float = 38.0
     max_wind_caution: float = 15.0

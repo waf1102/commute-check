@@ -49,11 +49,12 @@ def schedule_commute_check(commute: Commute):
         'cron',
         hour=commute.schedule_time.split(':')[0],
         minute=commute.schedule_time.split(':')[1],
+        day_of_week=commute.days_of_week,
         id=job_id,
         args=[commute.id],
         replace_existing=True,
     )
-    print(f"Scheduled job '{job_id}' to run daily at {commute.schedule_time}.")
+    print(f"Scheduled job '{job_id}' to run at {commute.schedule_time} on days: {commute.days_of_week}.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
