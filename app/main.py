@@ -158,3 +158,21 @@ async def assess_weather(
     
     assessment = engine_instance.assess(weather, thresholds)
     return assessment
+
+@app.post("/test-webhook", response_model=AssessmentResult)
+async def test_webhook(commute: CommuteCreate):
+    """
+    Manually trigger a notification test for given coordinates and thresholds.
+    """
+    try:
+        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon)
+    except Exception as e:
+        print(f"Weather API error: {e}")
+        raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
+    
+    assessment = engine_instance.assess(weather, commute)
+    
+    if commute.webhook_url:
+        await notification_service_instance.send_notification(commute.webhook_url, assessment)
+    
+    return assessment
