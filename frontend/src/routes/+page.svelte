@@ -39,11 +39,11 @@
             <div class="metrics">
                 <div class="metric">
                     <span>Temperature</span>
-                    <span>{data.assessment.details.temperature.toFixed(1)}°C</span>
+                    <span>{data.assessment.details.temperature.toFixed(1)}{data.unitSystem === 'metric' ? '°C' : '°F'}</span>
                 </div>
                 <div class="metric">
                     <span>Wind Speed</span>
-                    <span>{data.assessment.details.wind_speed.toFixed(1)} km/h</span>
+                    <span>{data.assessment.details.wind_speed.toFixed(1)} {data.unitSystem === 'metric' ? 'km/h' : 'mph'}</span>
                 </div>
                 <div class="metric">
                     <span>Rain Probability</span>

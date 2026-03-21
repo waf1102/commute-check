@@ -5,6 +5,7 @@
 
     let settings = $state({
         name: "My Commute",
+        unit_system: "imperial",
         min_temp_caution: 40,
         min_temp_no_go: 35,
         max_wind_caution: 20,
@@ -20,6 +21,7 @@
     let saved = $state(false);
     let testing = $state(false);
     let testStatus = $state('');
+    let locStatus = $state('');
 
     onMount(async () => {
         try {
@@ -81,6 +83,22 @@
             setTimeout(() => testStatus = '', 4000);
         }
     }
+
+    function useCurrentLocation() {
+        if (!navigator.geolocation) {
+            locStatus = "Geolocation is not supported by your browser";
+            return;
+        }
+        locStatus = "Locating...";
+        navigator.geolocation.getCurrentPosition((position) => {
+            settings.lat = parseFloat(position.coords.latitude.toFixed(4));
+            settings.lon = parseFloat(position.coords.longitude.toFixed(4));
+            locStatus = "✅ Location updated";
+            setTimeout(() => locStatus = '', 3000);
+        }, () => {
+            locStatus = "❌ Unable to retrieve your location";
+        });
+    }
 </script>
 
 <div class="container">
@@ -88,19 +106,36 @@
     
     <div class="card">
         <form onsubmit={saveSettings}>
-            <h3>Location</h3>
+            <h3>Preferences</h3>
             <div class="field">
-                <label for="lat">Latitude</label>
-                <input type="number" step="0.0001" id="lat" bind:value={settings.lat} required>
-            </div>
-            <div class="field">
-                <label for="lon">Longitude</label>
-                <input type="number" step="0.0001" id="lon" bind:value={settings.lon} required>
+                <label for="unit_system">Unit System</label>
+                <select id="unit_system" bind:value={settings.unit_system}>
+                    <option value="imperial">Imperial (°F / mph)</option>
+                    <option value="metric">Metric (°C / km/h)</option>
+                </select>
             </div>
 
             <hr>
 
-            <h3>Temperature Thresholds (°F)</h3>
+            <h3>Location</h3>
+            <div class="field-row">
+                <div class="field flex-1">
+                    <label for="lat">Latitude</label>
+                    <input type="number" step="0.0001" id="lat" bind:value={settings.lat} required>
+                </div>
+                <div class="field flex-1">
+                    <label for="lon">Longitude</label>
+                    <input type="number" step="0.0001" id="lon" bind:value={settings.lon} required>
+                </div>
+            </div>
+            <button type="button" class="secondary small-btn" onclick={useCurrentLocation}>📍 Use Current Location</button>
+            {#if locStatus}
+                <span class="status-msg">{locStatus}</span>
+            {/if}
+
+            <hr>
+
+            <h3>Temperature Thresholds ({settings.unit_system === 'metric' ? '°C' : '°F'})</h3>
             <div class="field">
                 <label for="tc">Caution Below</label>
                 <input type="number" id="tc" bind:value={settings.min_temp_caution}>
@@ -112,7 +147,7 @@
 
             <hr>
 
-            <h3>Wind Thresholds (mph)</h3>
+            <h3>Wind Thresholds ({settings.unit_system === 'metric' ? 'km/h' : 'mph'})</h3>
             <div class="field">
                 <label for="wc">Caution Above</label>
                 <input type="number" id="wc" bind:value={settings.max_wind_caution}>
@@ -168,17 +203,28 @@
         flex-direction: column;
     }
 
+    .field-row {
+        display: flex;
+        gap: 15px;
+    }
+
+    .flex-1 {
+        flex: 1;
+    }
+
     label {
         font-weight: bold;
         margin-bottom: 5px;
         font-size: 0.9rem;
     }
 
-    input {
+    input, select {
         padding: 8px;
         border: 1px solid var(--border);
         border-radius: 4px;
         font-size: 1rem;
+        background-color: var(--card-bg, #fff);
+        color: var(--text, #333);
     }
 
     hr {
@@ -212,18 +258,32 @@
     button.secondary {
         background-color: #6c757d;
     }
+
+    button.small-btn {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        margin-bottom: 15px;
+    }
     
     button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
 
-    .saved-msg, .test-msg {
-        color: var(--status-go);
+    .saved-msg, .test-msg, .status-msg {
         font-weight: bold;
+    }
+
+    .saved-msg {
+        color: var(--status-go);
     }
     
     .test-msg {
         color: #0d6efd;
+    }
+
+    .status-msg {
+        font-size: 0.9rem;
+        margin-left: 10px;
     }
 </style>

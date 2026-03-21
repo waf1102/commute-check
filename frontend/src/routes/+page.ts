@@ -4,6 +4,7 @@ import { browser } from '$app/environment';
 export const load: PageLoad = async ({ fetch }) => {
     let lat = 51.5074;
     let lon = -0.1278;
+    let unitSystem = 'imperial';
     let queryParams = new URLSearchParams();
 
     if (browser) {
@@ -12,12 +13,14 @@ export const load: PageLoad = async ({ fetch }) => {
             const settings = JSON.parse(stored);
             lat = settings.lat || lat;
             lon = settings.lon || lon;
+            unitSystem = settings.unit_system || unitSystem;
             if (settings.min_temp_caution) queryParams.append('min_temp_caution', settings.min_temp_caution);
             if (settings.min_temp_no_go) queryParams.append('min_temp_no_go', settings.min_temp_no_go);
             if (settings.max_wind_caution) queryParams.append('max_wind_caution', settings.max_wind_caution);
             if (settings.max_wind_no_go) queryParams.append('max_wind_no_go', settings.max_wind_no_go);
             if (settings.rain_threshold) queryParams.append('rain_threshold', settings.rain_threshold);
             if (settings.webhook_url) queryParams.append('webhook_url', settings.webhook_url);
+            queryParams.append('unit_system', unitSystem);
         }
     }
 
@@ -33,11 +36,12 @@ export const load: PageLoad = async ({ fetch }) => {
             throw new Error('Failed to fetch assessment');
         }
         const data = await response.json();
-        return { assessment: data };
+        return { assessment: data, unitSystem };
     } catch (error) {
         console.error('Fetch error:', error);
         return { 
             assessment: null,
+            unitSystem,
             error: 'Could not load weather assessment. Is the backend running?'
         };
     }
