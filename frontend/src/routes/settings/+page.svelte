@@ -126,20 +126,54 @@
         }
     }
 
-    function useCurrentLocation() {
+    async function useCurrentLocation() {
         if (!navigator.geolocation) {
             locStatus = "Geolocation is not supported by your browser";
             return;
         }
+        
         locStatus = "Locating...";
-        navigator.geolocation.getCurrentPosition((position) => {
+
+        const getPosition = (options: PositionOptions): Promise<GeolocationPosition> => 
+            new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
+
+        try {
+            // Attempt 1: High Accuracy
+            const position = await getPosition({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
             settings.lat = parseFloat(position.coords.latitude.toFixed(4));
             settings.lon = parseFloat(position.coords.longitude.toFixed(4));
             locStatus = "✅ Location updated";
-            setTimeout(() => locStatus = '', 3000);
-        }, () => {
-            locStatus = "❌ Unable to retrieve your location";
-        });
+            setTimeout(() => { if (locStatus === "✅ Location updated") locStatus = ''; }, 3000);
+        } catch (error: any) {
+            // If permission denied, don't retry
+            if (error.code === error.PERMISSION_DENIED) {
+                locStatus = "❌ Permission denied. Check browser settings.";
+                setTimeout(() => locStatus = '', 5000);
+                return;
+            }
+
+            console.warn("High accuracy failed, retrying with standard accuracy...", error);
+            locStatus = "Retrying...";
+
+            try {
+                // Attempt 2: Standard Accuracy
+                const position = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+                settings.lat = parseFloat(position.coords.latitude.toFixed(4));
+                settings.lon = parseFloat(position.coords.longitude.toFixed(4));
+                locStatus = "✅ Location updated (approximate)";
+                setTimeout(() => { if (locStatus === "✅ Location updated (approximate)") locStatus = ''; }, 3000);
+            } catch (error2: any) {
+                console.error("Geolocation fallback failed:", error2);
+                if (error2.code === error2.POSITION_UNAVAILABLE) {
+                    locStatus = "❌ Position unavailable. Try manual entry or check OS settings.";
+                } else if (error2.code === error2.TIMEOUT) {
+                    locStatus = "❌ Request timed out. Try again or enter manually.";
+                } else {
+                    locStatus = "❌ Unable to retrieve location. Please enter manually.";
+                }
+                setTimeout(() => { if (locStatus.startsWith('❌')) locStatus = ''; }, 8000);
+            }
+        }
     }
 </script>
 
