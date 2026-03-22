@@ -1,5 +1,11 @@
 # Requirements: Commute Check (v1.2 - Multi-User & Analytics)
 
+## Repository Maintenance
+
+### 1. Repository Hygiene
+- **[MAINT-GITIGNORE] Root Gitignore:** A comprehensive .gitignore at the root level to prevent committing secrets, binaries, and local databases.
+- **[MAINT-README] README.md:** A professional README.md at the project root with description, tech stack, features, and setup instructions.
+
 ## Functional Requirements
 
 ### 1. Multi-User Support
@@ -18,12 +24,14 @@
 
 | ID | Phase | Status |
 |----|-------|--------|
-| AUTH-SIGN | Phase 10 | Pending |
-| AUTH-LOGIN | Phase 10 | Pending |
-| AUTH-OWN | Phase 10 | Pending |
-| HIST-LOG | Phase 11 | Pending |
-| HIST-UI | Phase 11 | Pending |
-| UI-VIS | Phase 12 | Pending |
+| MAINT-GITIGNORE | Phase 10 | Completed |
+| MAINT-README | Phase 10 | Completed |
+| AUTH-SIGN | Phase 11 | Pending |
+| AUTH-LOGIN | Phase 11 | Pending |
+| AUTH-OWN | Phase 11 | Pending |
+| HIST-LOG | Phase 12 | Pending |
+| HIST-UI | Phase 12 | Pending |
+| UI-VIS | Phase 13 | Pending |
 
 ---
 

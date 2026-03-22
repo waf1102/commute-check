@@ -10,12 +10,19 @@
 
 ## Phases (v1.2)
 
-- [ ] **Phase 10: Authentication & Multi-User Support** - Implement user registration, login, and data isolation.
-- [ ] **Phase 11: History & Analytics** - Store assessment history and provide visualizations (e.g., Days Ridden vs Driven).
-- [ ] **Phase 12: Weather Visualizations** - Enhanced graphical representations in the UI.
+- [x] **Phase 10: Repository Maintenance & Setup** - Create root .gitignore and repository management rules.
+- [ ] **Phase 11: Authentication & Multi-User Support** - Implement user registration, login, and data isolation.
+- [ ] **Phase 12: History & Analytics** - Store assessment history and provide visualizations (e.g., Days Ridden vs Driven).
+- [ ] **Phase 13: Weather Visualizations** - Enhanced graphical representations in the UI.
 
 ---
 
 ## Phase Details
 
-*(Phase details for v1.2 will be planned via `/gsd:new-milestone` / `/gsd:plan-phase`)*
+### Phase 10: Repository Maintenance & Setup
+**Goal**: Establish a clean repository state by ignoring environment secrets, temporary files, and local databases.
+**Requirements**: [MAINT-GITIGNORE, MAINT-README]
+**Plans**: 1 plan
+- [x] 10-01-PLAN.md — Root .gitignore and README.md creation
+
+*(Other phase details for v1.2 will be planned via `/gsd:new-milestone` / `/gsd:plan-phase`)*
