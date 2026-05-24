@@ -3,10 +3,16 @@ from fastapi.testclient import TestClient
 from sqlmodel import create_engine, Session, SQLModel
 from app.main import app, get_session
 from unittest.mock import patch
-from app.models import Commute, HourlyWeather
+from app.models import Commute, HourlyWeather, User, CommuteCreate
+from app.security import ALGORITHM, SECRET_KEY, create_access_token, get_password_hash
+from jose import jwt
+from datetime import datetime, timedelta, timezone
 
 DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(DATABASE_URL, echo=True, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
 
 def get_session_override():
     with Session(engine) as session:
@@ -14,25 +20,56 @@ def get_session_override():
 
 app.dependency_overrides[get_session] = get_session_override
 
-@pytest.fixture(scope="function", autouse=True)
-def setup_teardown_database():
-    SQLModel.metadata.create_all(engine)
-    yield
+@pytest.fixture(name="session")
+def session_fixture():
+    create_db_and_tables()
+    with Session(engine) as session:
+        yield session
     SQLModel.metadata.drop_all(engine)
 
-client = TestClient(app)
+@pytest.fixture(name="client")
+def client_fixture(session: Session):
+    app.dependency_overrides[get_session] = lambda: session
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
 
-def test_health_check():
+def create_test_user(session: Session, email: str = "test@example.com", password: str = "testpassword") -> User:
+    hashed_password = get_password_hash(password)
+    user = User(email=email, hashed_password=hashed_password)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+def get_auth_token(email: str = "test@example.com", password: str = "testpassword") -> str:
+    access_token_expires = timedelta(minutes=30)
+    to_encode = {"sub": email}
+    expire = datetime.now(timezone.utc) + access_token_expires
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+@pytest.fixture
+def authenticated_client(client: TestClient, session: Session):
+    user = create_test_user(session)
+    token = get_auth_token(email=user.email)
+    client.headers = {"Authorization": f"Bearer {token}"}
+    return client, user
+
+def test_health_check(client: TestClient):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
 
-def test_read_config_not_found():
+def test_read_config_not_found(authenticated_client: tuple[TestClient, User]):
+    client, user = authenticated_client
     response = client.get("/config")
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Configuration not found"}
+    assert response.status_code == 200
+    assert response.json() == []
 
-def test_create_and_read_config():
+def test_create_and_read_config(authenticated_client: tuple[TestClient, User]):
+    client, user = authenticated_client
     # Create a new configuration
     config_data = {
         "name": "My Test Commute",
@@ -51,15 +88,18 @@ def test_create_and_read_config():
     created_config = response.json()
     assert created_config["name"] == config_data["name"]
     assert "id" in created_config
+    assert created_config["user_id"] == user.id
 
     # Read the configuration
     response = client.get("/config")
     assert response.status_code == 200
-    read_config = response.json()
+    read_config = response.json()[0] # Access the first element of the list
     assert read_config["name"] == config_data["name"]
     assert read_config["lat"] == config_data["lat"]
+    assert read_config["user_id"] == user.id
 
-def test_update_config():
+def test_update_config(authenticated_client: tuple[TestClient, User]):
+    client, user = authenticated_client
     # Create an initial configuration
     initial_config = {
         "name": "Initial Commute",
@@ -68,10 +108,14 @@ def test_update_config():
         "webhook_url": "https://example.com/initial",
         "schedule_time": "09:00"
     }
-    client.post("/config", json=initial_config)
+    initial_config_response = client.post("/config", json=initial_config)
+    assert initial_config_response.status_code == 200
+    initial_commute = initial_config_response.json()
+    initial_commute_id = initial_commute["id"]
 
     # Update the configuration
     updated_config = {
+        "id": initial_commute_id, # Include the ID for update
         "name": "Updated Commute",
         "lat": 3.3,
         "lon": 4.4,
@@ -84,11 +128,12 @@ def test_update_config():
     # Verify the update
     response = client.get("/config")
     assert response.status_code == 200
-    retrieved_config = response.json()
+    retrieved_config = response.json()[0] # Access the first element of the list
     assert retrieved_config["name"] == updated_config["name"]
     assert retrieved_config["schedule_time"] == updated_config["schedule_time"]
+    assert retrieved_config["user_id"] == user.id
 
-def test_assess_endpoint():
+def test_assess_endpoint(client: TestClient):
     dummy_weather = HourlyWeather(
         temperature=70.0,
         apparent_temp=72.0,

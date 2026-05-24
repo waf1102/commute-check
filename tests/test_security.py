@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session, create_engine, SQLModel, select
 from app.main import app # Assuming app is imported
 from app.database import get_session # Assuming get_session is defined
 from app.models import User # Assuming User model is defined
@@ -68,7 +68,7 @@ def test_register_user_failing(client: TestClient):
 
     # Verify user exists in DB
     with Session(engine) as session:
-        user = session.query(User).filter(User.email == "test@example.com").first()
+        user = session.exec(select(User).where(User.email == "test@example.com")).first()
         assert user is not None
         assert user.email == "test@example.com"
         assert user.hashed_password is not None

@@ -11,7 +11,7 @@
 ## Phases (v1.2)
 
 - [x] **Phase 10: Repository Maintenance & Setup** - Create root .gitignore and repository management rules.
-- [ ] **Phase 11: Authentication & Multi-User Support** - Implement user registration, login, and data isolation.
+- [x] **Phase 11: Authentication & Multi-User Support** - Implement user registration, login, and data isolation.
 - [ ] **Phase 12: History & Analytics** - Store assessment history and provide visualizations (e.g., Days Ridden vs Driven).
 - [ ] **Phase 13: Weather Visualizations** - Enhanced graphical representations in the UI.
 
@@ -30,8 +30,8 @@
 **Requirements**: [AUTH-01, AUTH-02, AUTH-03]
 **Plans**: 4 plans
 - [x] 11-01-PLAN.md — User Model & Auth API
-- [ ] 11-02-PLAN.md — Data Isolation & Backend Logic
-- [ ] 11-03-PLAN.md — Frontend Login/Register Pages
-- [ ] 11-04-PLAN.md — UI Integration & Auth State
+- [x] 11-02-PLAN.md — Data Isolation & Backend Logic
+- [x] 11-03-PLAN.md — Frontend Login/Register Pages
+- [x] 11-04-PLAN.md — UI Integration & Auth State
 
 *(Other phase details for v1.2 will be planned via `/gsd:new-milestone` / `/gsd:plan-phase`)*
