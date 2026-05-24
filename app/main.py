@@ -7,12 +7,12 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from contextlib import asynccontextmanager
 import os
 
-from .models import Commute, CommuteCreate, AssessmentResult, UnitSystem
+from .models import Commute, CommuteCreate, AssessmentResult, UnitSystem, User
 from .engine import AssessmentEngine
 from .client import WeatherClient
 from .notifications import NotificationService
 from .database import engine, get_session, create_db_and_tables
-from .security import router as auth_router
+from .security import router as auth_router, get_current_user
 
 # --- Scheduler Setup ---
 JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
@@ -97,15 +97,15 @@ def health_check():
     return {"status": "healthy"}
 
 @app.get("/config", response_model=List[Commute])
-def read_config(session: Session = Depends(get_session)):
-    commutes = session.exec(select(Commute)).all()
+def read_config(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
+    commutes = session.exec(select(Commute).where(Commute.user_id == user.id)).all()
     return commutes
 
 @app.post("/config", response_model=Commute)
-def create_or_update_config(commute_data: Commute, session: Session = Depends(get_session)):
+def create_or_update_config(commute_data: Commute, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     if commute_data.id:
         existing_commute = session.get(Commute, commute_data.id)
-        if existing_commute:
+        if existing_commute and existing_commute.user_id == user.id:
             update_data = commute_data.model_dump(exclude_unset=True)
             for key, value in update_data.items():
                 setattr(existing_commute, key, value)
@@ -113,40 +113,44 @@ def create_or_update_config(commute_data: Commute, session: Session = Depends(ge
             session.commit()
             session.refresh(existing_commute)
             commute_to_return = existing_commute
+        elif existing_commute and existing_commute.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Commute not found or not authorized")
         else:
             # ID provided but not found, treat as new
             commute_data.id = None
             new_commute = Commute.model_validate(commute_data)
+            new_commute.user_id = user.id
             session.add(new_commute)
             session.commit()
             session.refresh(new_commute)
             commute_to_return = new_commute
     else:
         new_commute = Commute.model_validate(commute_data)
+        new_commute.user_id = user.id
         session.add(new_commute)
         session.commit()
         session.refresh(new_commute)
         commute_to_return = new_commute
-    
+
     # After creating/updating, reschedule the job
     schedule_commute_check(commute_to_return)
-    
+
     return commute_to_return
 
 @app.delete("/config/{commute_id}")
-def delete_config(commute_id: int, session: Session = Depends(get_session)):
+def delete_config(commute_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     commute = session.get(Commute, commute_id)
-    if not commute:
-        raise HTTPException(status_code=404, detail="Commute not found")
-    
+    if not commute or commute.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Commute not found or not authorized")
+
     session.delete(commute)
     session.commit()
-    
+
     # Remove from scheduler
     job_id = f"commute_check_{commute_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
-        
+
     return {"status": "deleted"}
 
 @app.get("/assess", response_model=AssessmentResult)
