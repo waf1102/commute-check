@@ -10,3 +10,5 @@ cryptography
 tenacity
 cachetools
 apprise
+bcrypt
+python-jose[cryptography]
