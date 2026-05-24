@@ -14,6 +14,8 @@
 	<nav>
 		<a href="/">Dashboard</a>
 		<a href="/settings">Settings</a>
+		<a href="/login">Login</a>
+		<a href="/register">Register</a>
 	</nav>
 
 	<main>
