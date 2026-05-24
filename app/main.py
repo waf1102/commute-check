@@ -6,6 +6,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from contextlib import asynccontextmanager
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 from .models import Commute, CommuteCreate, AssessmentResult, UnitSystem, User
 from .engine import AssessmentEngine
