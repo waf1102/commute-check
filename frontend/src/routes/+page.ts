@@ -1,16 +1,21 @@
 import type { PageLoad } from './$types';
+import { getCommuteConfig, getCommuteAssessment } from '../lib/api';
+import { get } from 'svelte/store';
+import { jwt_token } from '$lib/auth';
 
-export const load: PageLoad = async ({ fetch }) => {
-    const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:8000';
-    
+export const load: PageLoad = async () => {
+    // Check for authentication token before fetching data
+    const token = get(jwt_token);
+    if (!token) {
+        return {
+            assessments: [],
+            error: 'Please log in to view your commute data.'
+        };
+    }
+
     try {
         // 1. Fetch all commutes
-        const configResponse = await fetch(`${backendUrl}/config`);
-        if (!configResponse.ok) {
-            throw new Error('Failed to load commutes from backend');
-        }
-        
-        const commutes = await configResponse.json();
+        const commutes = await getCommuteConfig();
         
         if (!commutes || commutes.length === 0) {
             return { assessments: [], error: 'No commutes configured. Please visit Settings to create one.' };
@@ -29,12 +34,10 @@ export const load: PageLoad = async ({ fetch }) => {
             });
 
             try {
-                const assessRes = await fetch(`${backendUrl}/assess?${queryParams.toString()}`);
-                if (!assessRes.ok) return { ...commute, assessment: null, error: 'Assessment failed' };
-                const assessmentData = await assessRes.json();
+                const assessmentData = await getCommuteAssessment(queryParams);
                 return { ...commute, assessment: assessmentData };
             } catch (e) {
-                return { ...commute, assessment: null, error: 'Network error' };
+                return { ...commute, assessment: null, error: 'Assessment failed' };
             }
         }));
 

@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
 
 export const jwt_token = writable<string | null>(null);
 
@@ -51,4 +52,5 @@ export function logout() {
     localStorage.removeItem('jwt_token');
   }
   jwt_token.set(null);
+  goto('/login');
 }
