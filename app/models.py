@@ -1,7 +1,9 @@
 from enum import Enum
 from typing import List, Optional
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, Relationship
 from pydantic import BaseModel
+from datetime import datetime
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, func
 
 
 class Status(str, Enum):
@@ -53,6 +55,7 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     hashed_password: str
+    assessment_history: List["AssessmentHistory"] = Relationship(back_populates="user")
 
 class UserCreate(SQLModel):
     email: str
@@ -62,3 +65,13 @@ class UserOut(SQLModel):
     id: int
     email: str
 
+class AssessmentHistory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, nullable=False, index=True)
+    commute_type: str = Field(nullable=False)
+    commute_distance_km: float = Field(nullable=False)
+    duration_minutes: float = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+    user: Optional["User"] = Relationship(back_populates="assessment_history")
