@@ -9,6 +9,10 @@ class Status(str, Enum):
     CAUTION = "Caution"
     NO_GO = "No-Go"
 
+class UnitSystem(str, Enum):
+    METRIC = "metric"
+    IMPERIAL = "imperial"
+
 class HourlyWeather(BaseModel):
     temperature: float
     apparent_temp: float
@@ -36,6 +40,7 @@ class CommuteBase(SQLModel):
     max_wind_caution: float = 15.0
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
+    unit_system: UnitSystem = UnitSystem.IMPERIAL
 
 class Commute(CommuteBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -47,4 +52,12 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     hashed_password: str
+
+class UserCreate(SQLModel):
+    email: str
+    password: str
+
+class UserOut(SQLModel):
+    id: int
+    email: str
 

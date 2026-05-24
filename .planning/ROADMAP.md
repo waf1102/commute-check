@@ -25,4 +25,13 @@
 **Plans**: 1 plan
 - [x] 10-01-PLAN.md — Root .gitignore and README.md creation
 
+### Phase 11: Authentication & Multi-User Support
+**Goal**: Implement user registration, login, and data isolation.
+**Requirements**: [AUTH-01, AUTH-02, AUTH-03]
+**Plans**: 4 plans
+- [x] 11-01-PLAN.md — User Model & Auth API
+- [ ] 11-02-PLAN.md — Data Isolation & Backend Logic
+- [ ] 11-03-PLAN.md — Frontend Login/Register Pages
+- [ ] 11-04-PLAN.md — UI Integration & Auth State
+
 *(Other phase details for v1.2 will be planned via `/gsd:new-milestone` / `/gsd:plan-phase`)*

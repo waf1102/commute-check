@@ -1,22 +1,76 @@
+import bcrypt
+from datetime import datetime, timedelta
+from typing import Optional
 import os
-from cryptography.fernet import Fernet
+from dotenv import load_dotenv
 
-# It's crucial to load the key from environment variables for security.
-# The key should be a 32-byte URL-safe base64-encoded string.
-key = os.getenv("ENCRYPTION_KEY")
-if not key:
-    raise ValueError("ENCRYPTION_KEY not found in environment variables. Please set it.")
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from sqlmodel import Session, select
 
-f = Fernet(key.encode())
+from app.database import get_session
+from app.models import User, UserCreate
 
-def encrypt_data(data: str) -> bytes:
-    """Encrypts a string and returns the encrypted data as bytes."""
-    if not isinstance(data, str):
-        raise TypeError("Data to encrypt must be a string.")
-    return f.encrypt(data.encode('utf-8'))
+# Load environment variables
+load_dotenv()
 
-def decrypt_data(encrypted_data: bytes) -> str:
-    """Decrypts data and returns it as a string."""
-    if not isinstance(encrypted_data, bytes):
-        raise TypeError("Encrypted data must be bytes.")
-    return f.decrypt(encrypted_data).decode('utf-8')
+# Security constants
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key") # TODO: Change default in production
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+
+router = APIRouter(prefix="/api", tags=["authentication"])
+
+def get_password_hash(password: str) -> str:
+    # bcrypt works with bytes, so encode the password
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    return hashed_password.decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    # bcrypt works with bytes, so encode and decode as necessary
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+@router.post("/register")
+def register_user(user_data: UserCreate, session: Session = Depends(get_session)):
+    # Check if user with this email already exists
+    existing_user = session.exec(select(User).where(User.email == user_data.email)).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email already exists"
+        )
+    
+    hashed_password = get_password_hash(user_data.password)
+    user = User(email=user_data.email, hashed_password=hashed_password)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"message": "User registered successfully", "user": user}
+
+@router.post("/login", response_model=dict)
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}

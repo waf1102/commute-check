@@ -1,7 +1,7 @@
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from cachetools import TTLCache
-from .models import HourlyWeather
+from .models import HourlyWeather, UnitSystem
 
 class WeatherClient:
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
@@ -15,8 +15,8 @@ class WeatherClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(httpx.HTTPError)
     )
-    async def get_hourly_weather(self, lat: float, lon: float) -> HourlyWeather:
-        cache_key = f"{lat}_{lon}"
+    async def get_hourly_weather(self, lat: float, lon: float, unit_system: UnitSystem = UnitSystem.IMPERIAL) -> HourlyWeather:
+        cache_key = f"{lat}_{lon}_{unit_system.value}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
@@ -25,8 +25,8 @@ class WeatherClient:
             "longitude": lon,
             "hourly": "temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,weather_code",
             "timezone": "auto",
-            "temperature_unit": "fahrenheit",
-            "wind_speed_unit": "mph",
+            "temperature_unit": "celsius" if unit_system == UnitSystem.METRIC else "fahrenheit",
+            "wind_speed_unit": "kmh" if unit_system == UnitSystem.METRIC else "mph",
             "forecast_days": 1
         }
         
@@ -53,8 +53,8 @@ class WeatherClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(httpx.HTTPError)
     )
-    def get_hourly_weather_sync(self, lat: float, lon: float) -> HourlyWeather:
-        cache_key = f"{lat}_{lon}"
+    def get_hourly_weather_sync(self, lat: float, lon: float, unit_system: UnitSystem = UnitSystem.IMPERIAL) -> HourlyWeather:
+        cache_key = f"{lat}_{lon}_{unit_system.value}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
@@ -63,8 +63,8 @@ class WeatherClient:
             "longitude": lon,
             "hourly": "temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,weather_code",
             "timezone": "auto",
-            "temperature_unit": "fahrenheit",
-            "wind_speed_unit": "mph",
+            "temperature_unit": "celsius" if unit_system == UnitSystem.METRIC else "fahrenheit",
+            "wind_speed_unit": "kmh" if unit_system == UnitSystem.METRIC else "mph",
             "forecast_days": 1
         }
         

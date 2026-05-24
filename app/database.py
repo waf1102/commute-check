@@ -1,6 +1,7 @@
 from sqlmodel import create_engine, Session, SQLModel
 from typing import Generator
 import os
+from app.models import User # Import User to ensure table creation
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///commute_check.db")
 

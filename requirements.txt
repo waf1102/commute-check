@@ -12,3 +12,6 @@ cachetools
 apprise
 bcrypt
 python-jose[cryptography]
+python-dotenv
+passlib
+python-multipart
