@@ -17,6 +17,7 @@
 <div class="container">
 	<nav>
 		<a href="/">Dashboard</a>
+		<a href="/history">History</a>
 		<a href="/settings">Settings</a>
 		{#if $jwt_token}
 			<span>Hello, {userEmail}</span>
