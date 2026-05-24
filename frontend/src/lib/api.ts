@@ -49,3 +49,16 @@ export async function getCommuteAssessment(queryParams: URLSearchParams): Promis
   }
   return response.json();
 }
+
+export async function getCommuteStats(userId: string, startDate: string, endDate: string): Promise<any> {
+  const queryParams = new URLSearchParams({
+    user_id: userId,
+    start_date: startDate,
+    end_date: endDate,
+  });
+  const response = await authenticatedFetch(`${API_BASE_URL}/analytics/commute-stats/daily?${queryParams.toString()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch commute stats');
+  }
+  return response.json();
+}
