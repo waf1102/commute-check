@@ -27,3 +27,8 @@ frontend/.env.*
 
 # Docker
 .docker_data/
+
+# AI
+.agent/
+.gsd/
+.gemini/
