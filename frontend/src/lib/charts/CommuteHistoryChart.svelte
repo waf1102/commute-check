@@ -23,8 +23,8 @@
     PointElement
   );
 
-  export let chartData: ChartData<'line'>;
-  export let chartOptions: ChartOptions<'line'> = {
+  // Use runes mode props
+  const { chartData, chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -51,7 +51,11 @@
         },
       },
     },
-  };
+  } } = $props<{
+    chartData: ChartData<'line'>;
+    chartOptions?: ChartOptions<'line'>;
+  }>();
+
 </script>
 
 <div style="height: 400px; width: 100%;">
