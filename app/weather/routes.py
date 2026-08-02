@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from typing import Optional
+import httpx
 
 from app.database import get_session
 from app.security import get_current_user
@@ -9,6 +10,22 @@ from app import client as app_client
 from .schemas import ForecastResponse, ThresholdsSchema, HourlyForecastItem
 
 router = APIRouter(prefix="/weather", tags=["weather"])
+
+def safe_float(val, default: float = 0.0) -> float:
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+def safe_int(val, default: int = 0) -> int:
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 @router.get("/forecast", response_model=ForecastResponse)
 async def get_weather_forecast(
@@ -25,7 +42,11 @@ async def get_weather_forecast(
     if not commute:
         raise HTTPException(status_code=404, detail="Commute configuration not found")
 
-    raw_weather = await app_client.fetch_weather(commute.lat, commute.lon, unit_system=unit_system)
+    try:
+        raw_weather = await app_client.fetch_weather(commute.lat, commute.lon, unit_system=unit_system)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="Weather service unavailable")
+
     hourly_raw = raw_weather.get("hourly", {})
     
     times = hourly_raw.get("time", [])
@@ -38,12 +59,12 @@ async def get_weather_forecast(
     hourly_items = []
     for i in range(min(len(times), 24)):
         hourly_items.append(HourlyForecastItem(
-            time=str(times[i]),
-            temperature=float(temps[i]) if i < len(temps) else 0.0,
-            apparent_temp=float(app_temps[i]) if i < len(app_temps) else 0.0,
-            wind_speed=float(winds[i]) if i < len(winds) else 0.0,
-            precip_prob=float(precips[i]) if i < len(precips) else 0.0,
-            weather_code=int(codes[i]) if i < len(codes) else 0
+            time=str(times[i]) if i < len(times) and times[i] is not None else "",
+            temperature=safe_float(temps[i] if i < len(temps) else None),
+            apparent_temp=safe_float(app_temps[i] if i < len(app_temps) else None),
+            wind_speed=safe_float(winds[i] if i < len(winds) else None),
+            precip_prob=safe_float(precips[i] if i < len(precips) else None),
+            weather_code=safe_int(codes[i] if i < len(codes) else None)
         ))
 
     thresholds = ThresholdsSchema(

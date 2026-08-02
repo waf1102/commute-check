@@ -1,16 +1,18 @@
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from sqlmodel import create_engine, Session, SQLModel
+from sqlmodel.pool import StaticPool
 from app.main import app
 from app.database import get_session
 from app.models import User, Commute
 from app.security import ALGORITHM, SECRET_KEY, get_password_hash
 from jose import jwt
 from datetime import datetime, timedelta, timezone
+import httpx
 
-DATABASE_URL = "sqlite:///./test_weather.db"
-engine = create_engine(DATABASE_URL, echo=False)
+DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool, echo=False)
 
 @pytest.fixture(name="session")
 def session_fixture():
@@ -32,7 +34,7 @@ def create_user_and_token(session: Session):
     session.commit()
     session.refresh(user)
     
-    commute = Commute(
+    commute1 = Commute(
         name="Work",
         lat=40.7128,
         lon=-74.0060,
@@ -44,15 +46,29 @@ def create_user_and_token(session: Session):
         max_wind_no_go=25.0,
         rain_threshold=30.0
     )
-    session.add(commute)
+    commute2 = Commute(
+        name="Gym",
+        lat=40.7306,
+        lon=-73.9352,
+        schedule_time="17:00",
+        user_id=user.id,
+        min_temp_caution=50.0,
+        min_temp_no_go=40.0,
+        max_wind_caution=20.0,
+        max_wind_no_go=30.0,
+        rain_threshold=40.0
+    )
+    session.add(commute1)
+    session.add(commute2)
     session.commit()
-    session.refresh(commute)
+    session.refresh(commute1)
+    session.refresh(commute2)
 
     token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, SECRET_KEY, algorithm=ALGORITHM)
-    return user, commute, token
+    return user, commute1, commute2, token
 
 def test_weather_forecast_endpoint(client: TestClient, session: Session):
-    user, commute, token = create_user_and_token(session)
+    user, commute1, commute2, token = create_user_and_token(session)
     
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
@@ -71,7 +87,7 @@ def test_weather_forecast_endpoint(client: TestClient, session: Session):
         data = response.json()
         assert "hourly" in data
         assert "thresholds" in data
-        assert "unit_system" in data
+        assert data["unit_system"] == "imperial"
         assert len(data["hourly"]) == 2
         assert data["thresholds"]["min_temp_caution"] == 45.0
         assert data["thresholds"]["min_temp_no_go"] == 38.0
@@ -82,6 +98,82 @@ def test_weather_forecast_endpoint(client: TestClient, session: Session):
         assert data["hourly"][0]["apparent_temp"] == 71.0
         assert data["hourly"][0]["wind_speed"] == 8.0
         assert data["hourly"][0]["precip_prob"] == 0
+        assert data["hourly"][0]["weather_code"] == 0
+
+def test_weather_forecast_with_commute_id(client: TestClient, session: Session):
+    user, commute1, commute2, token = create_user_and_token(session)
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = {
+            "hourly": {
+                "time": ["2026-08-02T17:00"],
+                "temperature_2m": [65.0],
+                "apparent_temperature": [65.0],
+                "wind_speed_10m": [12.0],
+                "precipitation_probability": [10],
+                "weather_code": [1]
+            }
+        }
+        
+        response = client.get(f"/weather/forecast?commute_id={commute2.id}", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["thresholds"]["min_temp_caution"] == 50.0
+        assert data["thresholds"]["rain_threshold"] == 40.0
+
+def test_weather_forecast_metric_units(client: TestClient, session: Session):
+    user, commute1, commute2, token = create_user_and_token(session)
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = {
+            "hourly": {
+                "time": ["2026-08-02T08:00"],
+                "temperature_2m": [21.0],
+                "apparent_temperature": [21.5],
+                "wind_speed_10m": [13.0],
+                "precipitation_probability": [0],
+                "weather_code": [0]
+            }
+        }
+        
+        response = client.get("/weather/forecast?unit_system=metric", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["unit_system"] == "metric"
+        assert data["hourly"][0]["temperature"] == 21.0
+
+def test_weather_forecast_service_unavailable(client: TestClient, session: Session):
+    user, commute1, commute2, token = create_user_and_token(session)
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.side_effect = httpx.HTTPError("Service down")
+        
+        response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Weather service unavailable"
+
+def test_weather_forecast_none_guarding(client: TestClient, session: Session):
+    user, commute1, commute2, token = create_user_and_token(session)
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = {
+            "hourly": {
+                "time": ["2026-08-02T08:00"],
+                "temperature_2m": [None],
+                "apparent_temperature": [None],
+                "wind_speed_10m": [None],
+                "precipitation_probability": [None],
+                "weather_code": [None]
+            }
+        }
+        
+        response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["hourly"][0]["temperature"] == 0.0
+        assert data["hourly"][0]["apparent_temp"] == 0.0
+        assert data["hourly"][0]["wind_speed"] == 0.0
+        assert data["hourly"][0]["precip_prob"] == 0.0
         assert data["hourly"][0]["weather_code"] == 0
 
 def test_weather_forecast_no_commute(client: TestClient, session: Session):
@@ -97,3 +189,23 @@ def test_weather_forecast_no_commute(client: TestClient, session: Session):
 def test_weather_forecast_unauthenticated(client: TestClient):
     response = client.get("/weather/forecast")
     assert response.status_code == 401
+
+@pytest.mark.asyncio
+async def test_weather_client_caching():
+    from app.client import WeatherClient
+    client = WeatherClient()
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_response = MagicMock()
+        mock_response.raise_for_status = lambda: None
+        mock_response.json.return_value = {"hourly": {"temperature_2m": [70.0]}}
+        mock_get.return_value = mock_response
+
+        # First call fetches from remote
+        res1 = await client.fetch_weather(40.0, -70.0)
+        assert res1["hourly"]["temperature_2m"][0] == 70.0
+        assert mock_get.call_count == 1
+
+        # Second call hits TTLCache
+        res2 = await client.fetch_weather(40.0, -70.0)
+        assert res2["hourly"]["temperature_2m"][0] == 70.0
+        assert mock_get.call_count == 1  # No extra HTTP call
