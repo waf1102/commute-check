@@ -15,6 +15,11 @@ class UnitSystem(str, Enum):
     METRIC = "metric"
     IMPERIAL = "imperial"
 
+class CommuteType(str, Enum):
+    RIDING = "riding"
+    DRIVING = "driving"
+
+
 class HourlyWeather(BaseModel):
     temperature: float
     apparent_temp: float

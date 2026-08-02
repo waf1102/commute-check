@@ -38,7 +38,7 @@ def get_daily_commute_stats(
         data_dicts.append({
             "timestamp": record.timestamp,
             "commute_type": record.commute_type,
-            "assessment_result_score": record.assessment_result.score if record.assessment_result else None
+            "assessment_result_score": getattr(record.assessment_result, "score", None) if getattr(record, "assessment_result", None) else getattr(record, "score", None)
         })
 
     df = pd.DataFrame(data_dicts)
