@@ -18,6 +18,7 @@ from .notifications import NotificationService
 from .database import engine, get_session, create_db_and_tables
 from .security import router as auth_router, get_current_user
 from .analytics.routes import router as analytics_router
+from .weather.routes import router as weather_router
 
 # --- Scheduler Setup ---
 JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
@@ -97,6 +98,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(analytics_router)
+app.include_router(weather_router)
 
 @app.get("/health")
 def health_check():
