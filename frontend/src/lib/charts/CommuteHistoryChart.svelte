@@ -9,8 +9,8 @@
     LinearScale,
     CategoryScale,
     PointElement,
-    ChartData,
-    ChartOptions
+    type ChartData,
+    type ChartOptions
   } from 'chart.js';
 
   ChartJS.register(
@@ -58,6 +58,6 @@
 
 </script>
 
-<div style="height: 400px; width: 100%;">
+<div style="height: 400px; width: 100%;" data-testid="commute-history-chart">
   <Line data={chartData} options={chartOptions} />
 </div>

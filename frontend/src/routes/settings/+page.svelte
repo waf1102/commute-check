@@ -3,10 +3,26 @@
 
     const BACKEND_URL = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:8000';
 
-    let commutes = $state([]);
+    interface CommuteSettings {
+        id?: number;
+        name: string;
+        unit_system: string;
+        min_temp_caution: number;
+        min_temp_no_go: number;
+        max_wind_caution: number;
+        max_wind_no_go: number;
+        rain_threshold: number;
+        webhook_url: string;
+        schedule_time: string;
+        days_of_week: string;
+        lat: number;
+        lon: number;
+    }
+
+    let commutes = $state<CommuteSettings[]>([]);
     let selectedIndex = $state(-1);
     
-    let defaultSettings = {
+    let defaultSettings: CommuteSettings = {
         name: "New Commute",
         unit_system: "imperial",
         min_temp_caution: 40,
@@ -21,7 +37,7 @@
         lon: -0.1278
     };
 
-    let settings = $state({ ...defaultSettings });
+    let settings = $state<CommuteSettings>({ ...defaultSettings });
 
     let saved = $state(false);
     let testing = $state(false);

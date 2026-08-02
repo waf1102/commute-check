@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/svelte';
 import CommuteHistoryChart from '$lib/charts/CommuteHistoryChart.svelte';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('svelte-chartjs', () => ({
+  Line: vi.fn()
+}));
 
 describe('CommuteHistoryChart', () => {
   it('renders without crashing with minimal data', () => {
@@ -29,8 +33,6 @@ describe('CommuteHistoryChart', () => {
       ]
     };
     render(CommuteHistoryChart, { props: { chartData: testChartData } });
-    // In a real scenario, we might assert on the presence of chart elements
-    // For now, we'll just check if the component container is there
     expect(screen.getByTestId('commute-history-chart')).toBeInTheDocument();
   });
 });

@@ -3,6 +3,29 @@ import { jwt_token } from './auth'; // Assuming auth.ts is in the same directory
 
 const API_BASE_URL = '/api'; // Adjust if your API is hosted elsewhere
 
+export interface Thresholds {
+  min_temp_caution: number;
+  min_temp_no_go: number;
+  max_wind_caution: number;
+  max_wind_no_go: number;
+  rain_threshold: number;
+}
+
+export interface HourlyForecastItem {
+  time: string;
+  temperature: number;
+  apparent_temp: number;
+  wind_speed: number;
+  precip_prob: number;
+  weather_code: number;
+}
+
+export interface ForecastResponse {
+  unit_system: string;
+  thresholds: Thresholds;
+  hourly: HourlyForecastItem[];
+}
+
 async function authenticatedFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const token = get(jwt_token);
   const headers = new Headers(init?.headers);
@@ -59,6 +82,22 @@ export async function getCommuteStats(userId: string, startDate: string, endDate
   const response = await authenticatedFetch(`${API_BASE_URL}/analytics/commute-stats/daily?${queryParams.toString()}`);
   if (!response.ok) {
     throw new Error('Failed to fetch commute stats');
+  }
+  return response.json();
+}
+
+export async function getWeatherForecast(commuteId?: number, unitSystem: string = 'imperial'): Promise<ForecastResponse> {
+  const queryParams = new URLSearchParams();
+  if (commuteId !== undefined) {
+    queryParams.append('commute_id', commuteId.toString());
+  }
+  if (unitSystem) {
+    queryParams.append('unit_system', unitSystem);
+  }
+  const url = `${API_BASE_URL}/weather/forecast${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+  const response = await authenticatedFetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch weather forecast');
   }
   return response.json();
 }
