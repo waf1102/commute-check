@@ -1,7 +1,21 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import type { PageData } from './$types';
+    import { getWeatherForecast, type ForecastResponse } from '$lib/api';
+    import RiskGaugeCards from '$lib/charts/RiskGaugeCards.svelte';
+    import HourlyWeatherChart from '$lib/charts/HourlyWeatherChart.svelte';
 
     let { data }: { data: PageData } = $props();
+
+    let forecast = $state<ForecastResponse | null>(null);
+
+    onMount(async () => {
+        try {
+            forecast = await getWeatherForecast();
+        } catch (e) {
+            console.error('Error fetching weather forecast:', e);
+        }
+    });
 
     const statusIcons: Record<string, string> = {
         'Go': '🟢',
@@ -69,6 +83,23 @@
                 </div>
             {/each}
         </div>
+    {/if}
+
+    {#if forecast && forecast.hourly && forecast.hourly.length > 0}
+        <section class="weather-visualizations">
+            <h2>Weather Visualizations</h2>
+            <RiskGaugeCards
+                currentTemp={forecast.hourly[0].temperature}
+                currentWind={forecast.hourly[0].wind_speed}
+                currentPrecip={forecast.hourly[0].precip_prob}
+                thresholds={forecast.thresholds}
+                unitSystem={forecast.unit_system}
+            />
+            <HourlyWeatherChart
+                hourlyData={forecast.hourly}
+                thresholds={forecast.thresholds}
+            />
+        </section>
     {/if}
 </div>
 
@@ -156,5 +187,14 @@
         font-weight: bold;
         margin-top: 10px;
         color: var(--primary);
+    }
+
+    .weather-visualizations {
+        margin-top: 30px;
+    }
+
+    .weather-visualizations h2 {
+        font-size: 1.5rem;
+        margin-bottom: 15px;
     }
 </style>
