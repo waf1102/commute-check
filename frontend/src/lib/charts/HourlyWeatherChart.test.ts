@@ -70,6 +70,21 @@ describe('RiskGaugeCards Component', () => {
     const noGoBadges = screen.getAllByText('No-Go');
     expect(noGoBadges.length).toBe(2);
   });
+
+  it('handles null/undefined thresholds gracefully with fallback defaults', () => {
+    render(RiskGaugeCards, {
+      props: {
+        currentTemp: 70,
+        currentWind: 5,
+        currentPrecip: 0,
+        thresholds: undefined
+      }
+    });
+
+    expect(screen.getByTestId('risk-gauge-cards')).toBeInTheDocument();
+    const goBadges = screen.getAllByText('Go');
+    expect(goBadges.length).toBe(3);
+  });
 });
 
 describe('HourlyWeatherChart Component', () => {

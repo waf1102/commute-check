@@ -24,7 +24,7 @@ vi.mock('$lib/auth', () => ({
 describe('History Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.getCommuteStats as vi.Mock).mockResolvedValue({
+    (api.getCommuteStats as any).mockResolvedValue({
       daily_stats: [
         { date: '2023-01-01', days_ridden: 5, days_driven: 2 },
         { date: '2023-01-02', days_ridden: 3, days_driven: 4 },
@@ -74,7 +74,7 @@ describe('History Page', () => {
   });
 
   it('handles error during data fetch', async () => {
-    (api.getCommuteStats as vi.Mock).mockRejectedValueOnce(new Error('API Error'));
+    (api.getCommuteStats as any).mockRejectedValueOnce(new Error('API Error'));
     render(HistoryPage);
     expect(await screen.findByText(/Error fetching commute data:/i)).toBeInTheDocument();
   });

@@ -3,13 +3,13 @@
 
     let { data }: { data: PageData } = $props();
 
-    const statusIcons = {
+    const statusIcons: Record<string, string> = {
         'Go': '🟢',
         'Caution': '🟡',
         'No-Go': '🔴'
     };
 
-    const statusClasses = {
+    const statusClasses: Record<string, string> = {
         'Go': 'status-go',
         'Caution': 'status-caution',
         'No-Go': 'status-nogo'

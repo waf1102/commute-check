@@ -28,12 +28,12 @@
     hourlyData = [],
     thresholds
   } = $props<{
-    hourlyData: HourlyForecastItem[];
+    hourlyData?: HourlyForecastItem[];
     thresholds?: Partial<Thresholds>;
   }>();
 
   const labels = $derived(
-    hourlyData.map((h) => {
+    (hourlyData || []).map((h: HourlyForecastItem) => {
       try {
         const date = new Date(h.time);
         if (isNaN(date.getTime())) return h.time;
@@ -49,7 +49,7 @@
     datasets: [
       {
         label: 'Temperature',
-        data: hourlyData.map((h) => h.temperature),
+        data: (hourlyData || []).map((h: HourlyForecastItem) => h.temperature),
         borderColor: '#3b82f6',
         backgroundColor: '#3b82f6',
         yAxisID: 'y',
@@ -57,7 +57,7 @@
       },
       {
         label: 'Wind Speed',
-        data: hourlyData.map((h) => h.wind_speed),
+        data: (hourlyData || []).map((h: HourlyForecastItem) => h.wind_speed),
         borderColor: '#f59e0b',
         backgroundColor: '#f59e0b',
         yAxisID: 'y',
@@ -65,7 +65,7 @@
       },
       {
         label: 'Rain Probability (%)',
-        data: hourlyData.map((h) => h.precip_prob),
+        data: (hourlyData || []).map((h: HourlyForecastItem) => h.precip_prob),
         borderColor: '#06b6d4',
         backgroundColor: '#06b6d4',
         yAxisID: 'y1',
@@ -104,6 +104,6 @@
   });
 </script>
 
-<div class="h-80 w-full p-4 bg-white rounded-xl shadow-sm border border-gray-200" data-testid="hourly-weather-chart">
+<div class="h-80 w-full p-4 bg-white rounded-xl shadow-sm border border-gray-200" data-testid="hourly-weather-chart" role="region" aria-label="Hourly Weather Forecast Chart">
   <Line data={chartData} options={chartOptions} />
 </div>

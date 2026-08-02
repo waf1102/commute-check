@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 
 export const jwt_token = writable<string | null>(null);
+export const user = writable<{ id: string; email?: string } | null>(null);
 
 if (browser) {
   const storedToken = localStorage.getItem('jwt_token');
@@ -52,5 +53,6 @@ export function logout() {
     localStorage.removeItem('jwt_token');
   }
   jwt_token.set(null);
+  user.set(null);
   goto('/login');
 }

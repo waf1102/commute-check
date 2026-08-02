@@ -27,7 +27,7 @@ export const load: PageLoad = async () => {
                 lat: commute.lat.toString(),
                 lon: commute.lon.toString(),
                 min_temp: commute.min_temp_caution.toString(),
-                max_temp: 95, // Default from main.py if not specified
+                max_temp: '95', // Default from main.py if not specified
                 max_wind: commute.max_wind_caution.toString(),
                 max_precip: commute.rain_threshold.toString(),
                 unit_system: commute.unit_system || 'imperial'
