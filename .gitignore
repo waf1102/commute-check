@@ -32,3 +32,4 @@ frontend/.env.*
 .agent/
 .gsd/
 .gemini/
+node_modules/
