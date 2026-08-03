@@ -2,9 +2,11 @@
 
 ## Current Context
 - **Framework**: Superpowers
-- **Active Milestone**: v1.3 PWA & Web Push Notifications (100% Complete)
-- **Last Completed Phase**: Phase 14 - PWA & Web Push Notifications (Completed & Verified)
-- **Status**: Phase 14 complete & verified across 54 backend tests + 25 frontend tests. Pushed to remote branch `phase-14-pwa-push-notifications`.
+- **Active Milestone**: v1.4 Multi-Route & Destination Weather (Planning & Execution)
+- **Last Completed Phase**: Phase 14 - PWA & Web Push Notifications (Merged into `main` and pushed)
+- **Current Phase**: Phase 15 - Multi-Route & Destination Weather
+- **Status**: Milestone v1.3 merged to `main`. Milestone v1.4 design spec & implementation plan created.
+
 
 ## Key Architectural Decisions
 - **D-008**: Use `tenacity` for retry logic across async Open-Meteo API calls.
