@@ -10,7 +10,10 @@ const ASSETS = [...build, ...files];
 
 self.addEventListener('install', (event: ExtendableEvent) => {
 	event.waitUntil(
-		caches.open(CACHE).then((cache) => cache.addAll(ASSETS))
+		caches.open(CACHE).then(async (cache) => {
+			await cache.addAll(ASSETS);
+			await self.skipWaiting();
+		})
 	);
 });
 
@@ -20,6 +23,7 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
 			for (const key of keys) {
 				if (key !== CACHE) await caches.delete(key);
 			}
+			await self.clients.claim();
 		})
 	);
 });
@@ -56,7 +60,14 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 
 // Push notification listener
 self.addEventListener('push', (event: PushEvent) => {
-	const data = event.data ? event.data.json() : {};
+	let data: any = {};
+	if (event.data) {
+		try {
+			data = event.data.json();
+		} catch {
+			data = { body: event.data.text() };
+		}
+	}
 	const title = data.title || 'Commute Check Update';
 	const options: NotificationOptions = {
 		body: data.body || 'Check your commute weather decision.',
@@ -71,15 +82,17 @@ self.addEventListener('push', (event: PushEvent) => {
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
 	event.notification.close();
 	const urlToOpen = event.notification.data?.url || '/';
+	const targetUrl = new URL(urlToOpen, self.location.origin).href;
+
 	event.waitUntil(
 		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
 			for (const client of clientList) {
-				if (client.url === urlToOpen && 'focus' in client) {
+				if (client.url === targetUrl && 'focus' in client) {
 					return client.focus();
 				}
 			}
 			if (self.clients.openWindow) {
-				return self.clients.openWindow(urlToOpen);
+				return self.clients.openWindow(targetUrl);
 			}
 		})
 	);
