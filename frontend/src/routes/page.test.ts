@@ -95,4 +95,54 @@ describe('Dashboard Page (+page.svelte)', () => {
     expect(api.getWeatherForecast).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('heading', { name: /Weather Visualizations/i })).not.toBeInTheDocument();
   });
+  it('renders destination inputs and return schedule picker', () => {
+    (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+    render(Page, { data: mockPageData });
+
+    expect(screen.getByLabelText(/Destination Name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Destination Latitude/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Destination Longitude/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Return Schedule Time/i)).toBeInTheDocument();
+  });
+
+  it('renders LegRiskCard when outbound_leg and return_leg are present', () => {
+    (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+    const mockMultiRouteData = {
+      assessments: [
+        {
+          name: 'Multi Route Commute',
+          schedule_time: '08:00',
+          return_schedule_time: '17:00',
+          unit_system: 'imperial',
+          assessment: {
+            overall_status: 'Caution',
+            overall_score: 60,
+            recommendation: 'Caution advised on return leg',
+            outbound_leg: {
+              leg_type: 'outbound',
+              location_name: 'Home -> Office',
+              schedule_time: '08:00',
+              status: 'Go',
+              score: 95,
+              reasons: ['Mild conditions']
+            },
+            return_leg: {
+              leg_type: 'return',
+              location_name: 'Office -> Home',
+              schedule_time: '17:00',
+              status: 'Caution',
+              score: 60,
+              reasons: ['High wind speed']
+            }
+          }
+        }
+      ]
+    };
+
+    render(Page, { data: mockMultiRouteData });
+
+    expect(screen.getByTestId('leg-risk-card')).toBeInTheDocument();
+    expect(screen.getByText('Home -> Office')).toBeInTheDocument();
+    expect(screen.getByText('Office -> Home')).toBeInTheDocument();
+  });
 });

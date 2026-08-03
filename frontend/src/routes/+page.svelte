@@ -4,6 +4,7 @@
     import { getWeatherForecast, type ForecastResponse } from '$lib/api';
     import RiskGaugeCards from '$lib/charts/RiskGaugeCards.svelte';
     import HourlyWeatherChart from '$lib/charts/HourlyWeatherChart.svelte';
+    import LegRiskCard from '$lib/components/LegRiskCard.svelte';
     import OfflineBanner from '$lib/components/OfflineBanner.svelte';
     import PwaInstallPrompt from '$lib/components/PwaInstallPrompt.svelte';
     import PushNotificationToggle from '$lib/components/PushNotificationToggle.svelte';
@@ -11,6 +12,11 @@
     let { data }: { data: PageData } = $props();
 
     let forecast = $state<ForecastResponse | null>(null);
+
+    let dest_name = $state('');
+    let dest_lat = $state<number | null>(null);
+    let dest_lon = $state<number | null>(null);
+    let return_schedule_time = $state('17:00');
 
     onMount(async () => {
         try {
@@ -41,6 +47,30 @@
 
     <PushNotificationToggle />
 
+    <section class="card destination-config-card">
+        <h3>Route & Destination Configuration</h3>
+        <div class="destination-form">
+            <div class="field">
+                <label for="dest_name">Destination Name</label>
+                <input type="text" id="dest_name" bind:value={dest_name} placeholder="e.g. Office" />
+            </div>
+            <div class="field-row">
+                <div class="field flex-1">
+                    <label for="dest_lat">Destination Latitude</label>
+                    <input type="number" step="0.0001" id="dest_lat" bind:value={dest_lat} placeholder="e.g. 37.7749" />
+                </div>
+                <div class="field flex-1">
+                    <label for="dest_lon">Destination Longitude</label>
+                    <input type="number" step="0.0001" id="dest_lon" bind:value={dest_lon} placeholder="e.g. -122.4194" />
+                </div>
+            </div>
+            <div class="field">
+                <label for="return_schedule_time">Return Schedule Time</label>
+                <input type="time" id="return_schedule_time" bind:value={return_schedule_time} />
+            </div>
+        </div>
+    </section>
+
     {#if data.error}
         <div class="card" style="border-color: var(--status-nogo)">
             <p>{data.error}</p>
@@ -56,37 +86,49 @@
                             <p>Error: {item.error}</p>
                         </div>
                     {:else if item.assessment}
-                        <div class="card assessment-card">
-                            <div class="status-icon">
-                                {statusIcons[item.assessment.status] || '❓'}
+                        {#if item.assessment.outbound_leg && item.assessment.return_leg}
+                            <LegRiskCard
+                                outboundLeg={item.assessment.outbound_leg}
+                                returnLeg={item.assessment.return_leg}
+                            />
+                        {:else if item.outbound_leg && item.return_leg}
+                            <LegRiskCard
+                                outboundLeg={item.outbound_leg}
+                                returnLeg={item.return_leg}
+                            />
+                        {:else}
+                            <div class="card assessment-card">
+                                <div class="status-icon">
+                                    {statusIcons[item.assessment.status] || '❓'}
+                                </div>
+                                <h2 class={statusClasses[item.assessment.status]}>
+                                    {item.assessment.status}
+                                </h2>
+                                <p class="recommendation">{item.assessment.recommendation}</p>
                             </div>
-                            <h2 class={statusClasses[item.assessment.status]}>
-                                {item.assessment.status}
-                            </h2>
-                            <p class="recommendation">{item.assessment.recommendation}</p>
-                        </div>
 
-                        <div class="card weather-card">
-                            <h3>Weather Details</h3>
-                            <div class="metrics">
-                                <div class="metric">
-                                    <span>Temperature</span>
-                                    <span>{item.assessment.details.temperature.toFixed(1)}{item.unit_system === 'metric' ? '°C' : '°F'}</span>
-                                </div>
-                                <div class="metric">
-                                    <span>Wind Speed</span>
-                                    <span>{item.assessment.details.wind_speed.toFixed(1)} {item.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
-                                </div>
-                                <div class="metric">
-                                    <span>Rain Probability</span>
-                                    <span>{item.assessment.details.precip_prob}%</span>
-                                </div>
-                                <div class="metric score">
-                                    <span>Safety Score</span>
-                                    <span>{item.assessment.score}/100</span>
+                            <div class="card weather-card">
+                                <h3>Weather Details</h3>
+                                <div class="metrics">
+                                    <div class="metric">
+                                        <span>Temperature</span>
+                                        <span>{item.assessment.details?.temperature?.toFixed(1) ?? 'N/A'}{item.unit_system === 'metric' ? '°C' : '°F'}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span>Wind Speed</span>
+                                        <span>{item.assessment.details?.wind_speed?.toFixed(1) ?? 'N/A'} {item.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span>Rain Probability</span>
+                                        <span>{item.assessment.details?.precip_prob ?? 'N/A'}%</span>
+                                    </div>
+                                    <div class="metric score">
+                                        <span>Safety Score</span>
+                                        <span>{item.assessment.score}/100</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        {/if}
                     {/if}
                 </div>
             {/each}
@@ -105,6 +147,7 @@
             />
             <HourlyWeatherChart
                 hourlyData={forecast.hourly}
+                destination_hourly={forecast.destination_hourly}
                 thresholds={forecast.thresholds}
             />
         </section>
@@ -112,6 +155,45 @@
 </div>
 
 <style>
+    .destination-config-card {
+        margin-bottom: 20px;
+    }
+
+    .destination-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    .field-row {
+        display: flex;
+        gap: 15px;
+    }
+
+    .flex-1 {
+        flex: 1;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .field label {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #374151;
+    }
+
+    .field input {
+        padding: 8px 12px;
+        border: 1px solid var(--border, #d1d5db);
+        border-radius: 6px;
+        font-size: 0.95rem;
+    }
+
     .dashboard-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));

@@ -136,4 +136,29 @@ describe('HourlyWeatherChart Component', () => {
 
     expect(screen.getByTestId('hourly-weather-chart')).toBeInTheDocument();
   });
+  it('renders location toggle when destination_hourly is present', () => {
+    render(HourlyWeatherChart, {
+      props: {
+        hourlyData: sampleHourlyData,
+        destination_hourly: sampleHourlyData,
+        thresholds: sampleThresholds
+      }
+    });
+
+    expect(screen.getByTestId('hourly-weather-chart')).toBeInTheDocument();
+    expect(screen.getByTestId('location-toggle')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Origin' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Destination' })).toBeInTheDocument();
+  });
+
+  it('does not render location toggle when destination_hourly is omitted', () => {
+    render(HourlyWeatherChart, {
+      props: {
+        hourlyData: sampleHourlyData,
+        thresholds: sampleThresholds
+      }
+    });
+
+    expect(screen.queryByTestId('location-toggle')).not.toBeInTheDocument();
+  });
 });

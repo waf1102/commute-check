@@ -24,16 +24,24 @@
     PointElement
   );
 
-  const {
-    hourlyData = [],
-    thresholds
-  } = $props<{
+  const props = $props<{
     hourlyData?: HourlyForecastItem[];
+    destinationHourlyData?: HourlyForecastItem[];
+    destination_hourly?: HourlyForecastItem[];
     thresholds?: Partial<Thresholds>;
   }>();
 
+  let activeLocation = $state<'origin' | 'destination'>('origin');
+
+  const destHourly = $derived(props.destinationHourlyData || props.destination_hourly);
+  const hasDestination = $derived(!!(destHourly && destHourly.length > 0));
+
+  const activeHourlyData = $derived(
+    activeLocation === 'destination' && destHourly ? destHourly : (props.hourlyData || [])
+  );
+
   const labels = $derived(
-    (hourlyData || []).map((h: HourlyForecastItem) => {
+    (activeHourlyData || []).map((h: HourlyForecastItem) => {
       try {
         const date = new Date(h.time);
         if (isNaN(date.getTime())) return h.time;
@@ -49,7 +57,7 @@
     datasets: [
       {
         label: 'Temperature',
-        data: (hourlyData || []).map((h: HourlyForecastItem) => h.temperature),
+        data: (activeHourlyData || []).map((h: HourlyForecastItem) => h.temperature),
         borderColor: '#3b82f6',
         backgroundColor: '#3b82f6',
         yAxisID: 'y',
@@ -57,7 +65,7 @@
       },
       {
         label: 'Wind Speed',
-        data: (hourlyData || []).map((h: HourlyForecastItem) => h.wind_speed),
+        data: (activeHourlyData || []).map((h: HourlyForecastItem) => h.wind_speed),
         borderColor: '#f59e0b',
         backgroundColor: '#f59e0b',
         yAxisID: 'y',
@@ -65,7 +73,7 @@
       },
       {
         label: 'Rain Probability (%)',
-        data: (hourlyData || []).map((h: HourlyForecastItem) => h.precip_prob),
+        data: (activeHourlyData || []).map((h: HourlyForecastItem) => h.precip_prob),
         borderColor: '#06b6d4',
         backgroundColor: '#06b6d4',
         yAxisID: 'y1',
@@ -79,7 +87,10 @@
     maintainAspectRatio: false,
     plugins: {
       legend: { position: 'top' as const },
-      title: { display: true, text: 'Hourly Weather Forecast' }
+      title: {
+        display: true,
+        text: activeLocation === 'destination' ? 'Hourly Weather Forecast (Destination)' : 'Hourly Weather Forecast (Origin)'
+      }
     },
     scales: {
       x: {
@@ -105,5 +116,25 @@
 </script>
 
 <div class="h-80 w-full p-4 bg-white rounded-xl shadow-sm border border-gray-200" data-testid="hourly-weather-chart" role="region" aria-label="Hourly Weather Forecast Chart">
-  <Line data={chartData} options={chartOptions} />
+  {#if hasDestination}
+    <div class="flex gap-2 mb-3 location-toggle" data-testid="location-toggle">
+      <button
+        type="button"
+        class="px-3 py-1 text-sm font-medium rounded-md transition-colors {activeLocation === 'origin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+        onclick={() => (activeLocation = 'origin')}
+      >
+        Origin
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1 text-sm font-medium rounded-md transition-colors {activeLocation === 'destination' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+        onclick={() => (activeLocation = 'destination')}
+      >
+        Destination
+      </button>
+    </div>
+  {/if}
+  <div class="h-64 w-full">
+    <Line data={chartData} options={chartOptions} />
+  </div>
 </div>

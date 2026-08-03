@@ -20,10 +20,29 @@ export interface HourlyForecastItem {
   weather_code: number;
 }
 
+export interface LegAssessment {
+  leg_type: string;
+  location_name: string;
+  schedule_time: string;
+  status: string;
+  score: number;
+  reasons: string[];
+  weather?: HourlyForecastItem;
+}
+
+export interface RouteAssessmentResult {
+  overall_status: string;
+  overall_score: number;
+  outbound_leg: LegAssessment;
+  return_leg?: LegAssessment;
+  recommendation: string;
+}
+
 export interface ForecastResponse {
   unit_system: string;
   thresholds: Thresholds;
   hourly: HourlyForecastItem[];
+  destination_hourly?: HourlyForecastItem[];
 }
 
 async function authenticatedFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
