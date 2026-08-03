@@ -158,3 +158,46 @@ def test_assess_route_single_location_fallback(engine):
     assert result.return_leg.score == 70
     assert result.overall_status == Status.CAUTION
     assert result.overall_score == 70
+
+
+def test_assess_route_commute_none_defaults(engine):
+    origin_outbound = HourlyWeather(
+        temperature=70.0, apparent_temp=70.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+    origin_return = HourlyWeather(
+        temperature=65.0, apparent_temp=65.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+
+    result = engine.assess_route(origin_outbound, None, None, origin_return, commute=None)
+    assert result.overall_status == Status.GO
+    assert result.outbound_leg.location_name == "Origin"
+    assert result.outbound_leg.schedule_time == "08:00"
+    assert result.return_leg is not None
+    assert result.return_leg.location_name == "Origin"
+    assert result.return_leg.schedule_time == "17:00"
+
+
+def test_assess_route_asymmetric_dest_return_weather(engine):
+    commute = Commute(
+        lat=37.7,
+        lon=-122.4,
+        dest_name="Office",
+        dest_lat=37.3,
+        dest_lon=-122.0,
+        schedule_time="08:30",
+        return_schedule_time="17:30",
+    )
+    origin_outbound = HourlyWeather(
+        temperature=70.0, apparent_temp=70.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+    dest_return = HourlyWeather(
+        temperature=45.0, apparent_temp=40.0, wind_speed=10.0, wind_gusts=12.0, precip_prob=0.0, weather_code=0
+    )
+
+    result = engine.assess_route(origin_outbound, None, dest_return, None, commute)
+    assert result.outbound_leg.status == Status.GO
+    assert result.return_leg is not None
+    assert result.return_leg.status == Status.CAUTION
+    assert result.return_leg.location_name == "Office -> Default Commute"
+    assert result.return_leg.schedule_time == "17:30"
+    assert result.overall_status == Status.CAUTION

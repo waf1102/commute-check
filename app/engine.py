@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from .models import Status, HourlyWeather, AssessmentResult, Commute, LegAssessment, RouteAssessmentResult
 
 STATUS_SEVERITY = {
@@ -108,6 +108,30 @@ class AssessmentEngine:
             details=weather
         )
 
+    def _assess_single_or_dual_weather(
+        self,
+        w1: Optional[HourlyWeather],
+        w2: Optional[HourlyWeather],
+        thresholds: Commute,
+    ) -> Optional[Tuple[Status, int, List[str], HourlyWeather]]:
+        if w1 is None and w2 is None:
+            return None
+
+        if w1 is not None and w2 is not None:
+            res1 = self.assess(w1, thresholds)
+            res2 = self.assess(w2, thresholds)
+            score = min(res1.score, res2.score)
+            status = _worst_status(res1.status, res2.status)
+            reasons = _combine_reasons(res1.reasons, res2.reasons)
+            weather = w2 if res2.score < res1.score else w1
+            return status, score, reasons, weather
+        elif w1 is not None:
+            res1 = self.assess(w1, thresholds)
+            return res1.status, res1.score, res1.reasons, w1
+        else:
+            res2 = self.assess(w2, thresholds)
+            return res2.status, res2.score, res2.reasons, w2
+
     def assess_route(
         self,
         origin_outbound_weather: HourlyWeather,
@@ -119,18 +143,8 @@ class AssessmentEngine:
         thresholds = commute if commute is not None else Commute(lat=0.0, lon=0.0, schedule_time="08:00")
 
         # 1. Outbound leg evaluation
-        origin_outbound_res = self.assess(origin_outbound_weather, thresholds)
-        if dest_outbound_weather is not None:
-            dest_outbound_res = self.assess(dest_outbound_weather, thresholds)
-            outbound_score = min(origin_outbound_res.score, dest_outbound_res.score)
-            outbound_status = _worst_status(origin_outbound_res.status, dest_outbound_res.status)
-            outbound_reasons = _combine_reasons(origin_outbound_res.reasons, dest_outbound_res.reasons)
-            outbound_weather = dest_outbound_weather if dest_outbound_res.score < origin_outbound_res.score else origin_outbound_weather
-        else:
-            outbound_score = origin_outbound_res.score
-            outbound_status = origin_outbound_res.status
-            outbound_reasons = origin_outbound_res.reasons
-            outbound_weather = origin_outbound_weather
+        outbound_eval = self._assess_single_or_dual_weather(origin_outbound_weather, dest_outbound_weather, thresholds)
+        outbound_status, outbound_score, outbound_reasons, outbound_weather = outbound_eval
 
         origin_name = commute.name if commute and commute.name else "Origin"
         dest_name = commute.dest_name if commute and commute.dest_name else None
@@ -149,29 +163,11 @@ class AssessmentEngine:
 
         # 2. Return leg evaluation (if dest_return_weather or origin_return_weather provided)
         return_leg = None
-        if dest_return_weather is not None or origin_return_weather is not None:
+        return_eval = self._assess_single_or_dual_weather(dest_return_weather, origin_return_weather, thresholds)
+        if return_eval is not None:
+            return_status, return_score, return_reasons, return_weather = return_eval
             return_time = commute.return_schedule_time if commute and commute.return_schedule_time else "17:00"
             return_location = f"{dest_name} -> {origin_name}" if dest_name else origin_name
-
-            if dest_return_weather is not None and origin_return_weather is not None:
-                dest_return_res = self.assess(dest_return_weather, thresholds)
-                origin_return_res = self.assess(origin_return_weather, thresholds)
-                return_score = min(dest_return_res.score, origin_return_res.score)
-                return_status = _worst_status(dest_return_res.status, origin_return_res.status)
-                return_reasons = _combine_reasons(dest_return_res.reasons, origin_return_res.reasons)
-                return_weather = dest_return_weather if dest_return_res.score < origin_return_res.score else origin_return_weather
-            elif dest_return_weather is not None:
-                dest_return_res = self.assess(dest_return_weather, thresholds)
-                return_score = dest_return_res.score
-                return_status = dest_return_res.status
-                return_reasons = dest_return_res.reasons
-                return_weather = dest_return_weather
-            else:
-                origin_return_res = self.assess(origin_return_weather, thresholds)
-                return_score = origin_return_res.score
-                return_status = origin_return_res.status
-                return_reasons = origin_return_res.reasons
-                return_weather = origin_return_weather
 
             return_leg = LegAssessment(
                 leg_type="return",
