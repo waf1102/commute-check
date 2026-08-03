@@ -1,20 +1,18 @@
 # Superpowers Roadmap: Commute Check
 
-## Active Milestone: v1.2 - Multi-User & Analytics (Completed)
+## Active Milestone: v1.3 - PWA & Web Push Notifications (In Progress)
 
-### Completed Phases
-- [x] **Phase 10: Repository Maintenance & Setup**
-  - Goal: Establish clean repository hygiene (.gitignore, README.md).
-- [x] **Phase 11: Authentication & Multi-User Support**
-  - Goal: Implement user registration, login, JWT auth, and data isolation.
-- [x] **Phase 12: History & Analytics**
-  - Goal: Store assessment history, provide analytics backend APIs, and Chart.js UI components.
-- [x] **Phase 13: Weather Visualizations**
-  - Goal: Enhanced graphical representations of weather forecasts (temperature, wind, rain probability) and risk status gauges in the dashboard.
+### Active Phase
+- [ ] **Phase 14: PWA & Web Push Notifications**
+  - Goal: Native VAPID WebPush browser notifications, installable PWA manifest, service worker offline forecast caching, and notification settings UI.
 
 ---
 
 ## Past Milestones
 - [x] **v1.0 - Core MVP** (Shipped 2026-03-21)
 - [x] **v1.1 - Reliability & Polish** (Shipped 2026-03-21)
-- [x] **v1.2 - Multi-User & Analytics** (Completed 2026-08-02)
+- [x] **v1.2 - Multi-User & Analytics** (Shipped 2026-08-02)
+  - Phase 10: Repository Maintenance & Setup
+  - Phase 11: Authentication & Multi-User Support
+  - Phase 12: History & Analytics
+  - Phase 13: Weather Visualizations
