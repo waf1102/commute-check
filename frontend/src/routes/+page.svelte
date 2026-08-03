@@ -4,6 +4,9 @@
     import { getWeatherForecast, type ForecastResponse } from '$lib/api';
     import RiskGaugeCards from '$lib/charts/RiskGaugeCards.svelte';
     import HourlyWeatherChart from '$lib/charts/HourlyWeatherChart.svelte';
+    import OfflineBanner from '$lib/components/OfflineBanner.svelte';
+    import PwaInstallPrompt from '$lib/components/PwaInstallPrompt.svelte';
+    import PushNotificationToggle from '$lib/components/PushNotificationToggle.svelte';
 
     let { data }: { data: PageData } = $props();
 
@@ -31,7 +34,12 @@
 </script>
 
 <div class="container">
+    <OfflineBanner />
+    <PwaInstallPrompt />
+
     <h1>Commute Check Dashboard</h1>
+
+    <PushNotificationToggle />
 
     {#if data.error}
         <div class="card" style="border-color: var(--status-nogo)">

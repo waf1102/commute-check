@@ -101,3 +101,61 @@ export async function getWeatherForecast(commuteId?: number, unitSystem: string 
   }
   return response.json();
 }
+
+export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function getVapidPublicKey(): Promise<{ public_key: string }> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/push/vapid-public-key`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch VAPID public key');
+  }
+  return response.json();
+}
+
+export async function subscribePush(subscriptionData: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  user_agent?: string;
+}): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/push/subscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscriptionData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to subscribe to push notifications');
+  }
+  return response.json();
+}
+
+export async function unsubscribePush(endpoint: string): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/push/unsubscribe`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to unsubscribe from push notifications');
+  }
+  return response.json();
+}
+
+export async function sendTestPush(): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/push/test`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to send test push notification');
+  }
+  return response.json();
+}
