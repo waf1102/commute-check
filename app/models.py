@@ -35,13 +35,33 @@ class AssessmentResult(BaseModel):
     recommendation: str
     details: Optional[HourlyWeather] = None
 
+class LegAssessment(BaseModel):
+    leg_type: str  # "outbound" or "return"
+    location_name: str
+    schedule_time: str
+    status: Status
+    score: int
+    reasons: List[str]
+    weather: HourlyWeather
+
+class RouteAssessmentResult(BaseModel):
+    overall_status: Status
+    overall_score: int
+    outbound_leg: LegAssessment
+    return_leg: Optional[LegAssessment] = None
+    recommendation: str
+
 class CommuteBase(SQLModel):
     name: str = "Default Commute"
     lat: float
     lon: float
-    webhook_url: Optional[str] = None
-    schedule_time: str # HH:MM format
+    dest_name: Optional[str] = None
+    dest_lat: Optional[float] = None
+    dest_lon: Optional[float] = None
+    schedule_time: str  # HH:MM format
+    return_schedule_time: Optional[str] = "17:00"
     days_of_week: str = "mon-fri"
+    webhook_url: Optional[str] = None
     min_temp_caution: float = 45.0
     min_temp_no_go: float = 38.0
     max_wind_caution: float = 15.0
