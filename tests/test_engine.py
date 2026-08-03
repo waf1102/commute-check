@@ -97,3 +97,64 @@ def test_dangerous_weather_code(engine, thresholds):
     result = engine.assess(weather, thresholds)
     assert result.status == Status.NO_GO
     assert "Dangerous weather conditions (snow/storm)" in result.reasons
+
+
+def test_assess_route_with_destination_and_return(engine):
+    commute = Commute(
+        lat=37.7,
+        lon=-122.4,
+        dest_name="Work",
+        dest_lat=37.3,
+        dest_lon=-122.0,
+        schedule_time="08:00",
+        return_schedule_time="17:00",
+    )
+    # Origin outbound weather (good)
+    origin_outbound = HourlyWeather(
+        temperature=60.0, apparent_temp=58.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+    # Destination outbound weather (bad wind)
+    dest_outbound = HourlyWeather(
+        temperature=60.0, apparent_temp=58.0, wind_speed=30.0, wind_gusts=35.0, precip_prob=0.0, weather_code=0
+    )
+    # Destination return weather (good)
+    dest_return = HourlyWeather(
+        temperature=65.0, apparent_temp=65.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+    # Origin return weather (good)
+    origin_return = HourlyWeather(
+        temperature=62.0, apparent_temp=62.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+
+    result = engine.assess_route(origin_outbound, dest_outbound, dest_return, origin_return, commute)
+    assert result.overall_status == Status.NO_GO
+    assert result.outbound_leg.status == Status.NO_GO
+    assert result.outbound_leg.score == 0
+    assert "Extreme wind speeds" in result.outbound_leg.reasons
+    assert result.return_leg is not None
+    assert result.return_leg.status == Status.GO
+    assert result.return_leg.score == 100
+
+
+def test_assess_route_single_location_fallback(engine):
+    commute = Commute(
+        lat=37.7,
+        lon=-122.4,
+        schedule_time="08:00",
+        return_schedule_time="17:00",
+    )
+    origin_outbound = HourlyWeather(
+        temperature=70.0, apparent_temp=70.0, wind_speed=5.0, wind_gusts=8.0, precip_prob=0.0, weather_code=0
+    )
+    origin_return = HourlyWeather(
+        temperature=45.0, apparent_temp=40.0, wind_speed=10.0, wind_gusts=12.0, precip_prob=0.0, weather_code=0
+    )
+
+    result = engine.assess_route(origin_outbound, None, None, origin_return, commute)
+    assert result.outbound_leg.status == Status.GO
+    assert result.outbound_leg.score == 100
+    assert result.return_leg is not None
+    assert result.return_leg.status == Status.CAUTION
+    assert result.return_leg.score == 70
+    assert result.overall_status == Status.CAUTION
+    assert result.overall_score == 70
