@@ -26,6 +26,15 @@
         }
     });
 
+    async function checkDestinationWeather(e?: Event) {
+        if (e) e.preventDefault();
+        try {
+            forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
+        } catch (err) {
+            console.error('Error updating forecast with destination:', err);
+        }
+    }
+
     const statusIcons: Record<string, string> = {
         'Go': '🟢',
         'Caution': '🟡',
@@ -49,7 +58,7 @@
 
     <section class="card destination-config-card">
         <h3>Route & Destination Configuration</h3>
-        <div class="destination-form">
+        <form onsubmit={checkDestinationWeather} class="destination-form">
             <div class="field">
                 <label for="dest_name">Destination Name</label>
                 <input type="text" id="dest_name" bind:value={dest_name} placeholder="e.g. Office" />
@@ -68,7 +77,8 @@
                 <label for="return_schedule_time">Return Schedule Time</label>
                 <input type="time" id="return_schedule_time" bind:value={return_schedule_time} />
             </div>
-        </div>
+            <button type="submit" class="update-btn">Update Route Forecast</button>
+        </form>
     </section>
 
     {#if data.error}
@@ -85,50 +95,43 @@
                         <div class="card" style="border-color: var(--status-nogo)">
                             <p>Error: {item.error}</p>
                         </div>
+                    {:else if item.assessment?.outbound_leg || item?.outbound_leg}
+                        <LegRiskCard
+                            outboundLeg={item.assessment?.outbound_leg || item?.outbound_leg}
+                            returnLeg={item.assessment?.return_leg || item?.return_leg}
+                        />
                     {:else if item.assessment}
-                        {#if item.assessment.outbound_leg && item.assessment.return_leg}
-                            <LegRiskCard
-                                outboundLeg={item.assessment.outbound_leg}
-                                returnLeg={item.assessment.return_leg}
-                            />
-                        {:else if item.outbound_leg && item.return_leg}
-                            <LegRiskCard
-                                outboundLeg={item.outbound_leg}
-                                returnLeg={item.return_leg}
-                            />
-                        {:else}
-                            <div class="card assessment-card">
-                                <div class="status-icon">
-                                    {statusIcons[item.assessment.status] || '❓'}
-                                </div>
-                                <h2 class={statusClasses[item.assessment.status]}>
-                                    {item.assessment.status}
-                                </h2>
-                                <p class="recommendation">{item.assessment.recommendation}</p>
+                        <div class="card assessment-card">
+                            <div class="status-icon">
+                                {statusIcons[item.assessment.status] || '❓'}
                             </div>
+                            <h2 class={statusClasses[item.assessment.status]}>
+                                {item.assessment.status}
+                            </h2>
+                            <p class="recommendation">{item.assessment.recommendation}</p>
+                        </div>
 
-                            <div class="card weather-card">
-                                <h3>Weather Details</h3>
-                                <div class="metrics">
-                                    <div class="metric">
-                                        <span>Temperature</span>
-                                        <span>{item.assessment.details?.temperature?.toFixed(1) ?? 'N/A'}{item.unit_system === 'metric' ? '°C' : '°F'}</span>
-                                    </div>
-                                    <div class="metric">
-                                        <span>Wind Speed</span>
-                                        <span>{item.assessment.details?.wind_speed?.toFixed(1) ?? 'N/A'} {item.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
-                                    </div>
-                                    <div class="metric">
-                                        <span>Rain Probability</span>
-                                        <span>{item.assessment.details?.precip_prob ?? 'N/A'}%</span>
-                                    </div>
-                                    <div class="metric score">
-                                        <span>Safety Score</span>
-                                        <span>{item.assessment.score}/100</span>
-                                    </div>
+                        <div class="card weather-card">
+                            <h3>Weather Details</h3>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span>Temperature</span>
+                                    <span>{item.assessment.details?.temperature?.toFixed(1) ?? 'N/A'}{item.unit_system === 'metric' ? '°C' : '°F'}</span>
+                                </div>
+                                <div class="metric">
+                                    <span>Wind Speed</span>
+                                    <span>{item.assessment.details?.wind_speed?.toFixed(1) ?? 'N/A'} {item.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
+                                </div>
+                                <div class="metric">
+                                    <span>Rain Probability</span>
+                                    <span>{item.assessment.details?.precip_prob ?? 'N/A'}%</span>
+                                </div>
+                                <div class="metric score">
+                                    <span>Safety Score</span>
+                                    <span>{item.assessment.score}/100</span>
                                 </div>
                             </div>
-                        {/if}
+                        </div>
                     {/if}
                 </div>
             {/each}
@@ -192,6 +195,22 @@
         border: 1px solid var(--border, #d1d5db);
         border-radius: 6px;
         font-size: 0.95rem;
+    }
+
+    .update-btn {
+        background-color: var(--primary, #3b82f6);
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        align-self: flex-start;
+        margin-top: 6px;
+    }
+
+    .update-btn:hover {
+        opacity: 0.9;
     }
 
     .dashboard-grid {

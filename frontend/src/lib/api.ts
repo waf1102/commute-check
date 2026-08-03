@@ -105,13 +105,24 @@ export async function getCommuteStats(userId: string, startDate: string, endDate
   return response.json();
 }
 
-export async function getWeatherForecast(commuteId?: number, unitSystem: string = 'imperial'): Promise<ForecastResponse> {
+export async function getWeatherForecast(
+  commuteId?: number,
+  unitSystem: string = 'imperial',
+  destLat?: number | null,
+  destLon?: number | null
+): Promise<ForecastResponse> {
   const queryParams = new URLSearchParams();
   if (commuteId !== undefined) {
     queryParams.append('commute_id', commuteId.toString());
   }
   if (unitSystem) {
     queryParams.append('unit_system', unitSystem);
+  }
+  if (destLat !== undefined && destLat !== null) {
+    queryParams.append('dest_lat', destLat.toString());
+  }
+  if (destLon !== undefined && destLon !== null) {
+    queryParams.append('dest_lon', destLon.toString());
   }
   const url = `${API_BASE_URL}/weather/forecast${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
   const response = await authenticatedFetch(url);

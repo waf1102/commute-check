@@ -144,5 +144,34 @@ describe('Dashboard Page (+page.svelte)', () => {
     expect(screen.getByTestId('leg-risk-card')).toBeInTheDocument();
     expect(screen.getByText('Home -> Office')).toBeInTheDocument();
     expect(screen.getByText('Office -> Home')).toBeInTheDocument();
+  });  it('renders LegRiskCard when only outbound_leg is present (single-leg assessment)', () => {
+    (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+    const mockSingleLegData = {
+      assessments: [
+        {
+          name: 'Single Leg Commute',
+          schedule_time: '08:00',
+          unit_system: 'imperial',
+          assessment: {
+            overall_status: 'Go',
+            overall_score: 90,
+            recommendation: 'Good conditions',
+            outbound_leg: {
+              leg_type: 'outbound',
+              location_name: 'Home -> Office',
+              schedule_time: '08:00',
+              status: 'Go',
+              score: 90,
+              reasons: ['Clear skies']
+            }
+          }
+        }
+      ]
+    };
+
+    render(Page, { data: mockSingleLegData });
+
+    expect(screen.getByTestId('leg-risk-card')).toBeInTheDocument();
+    expect(screen.getByText('Home -> Office')).toBeInTheDocument();
   });
 });

@@ -121,6 +121,7 @@
       <button
         type="button"
         class="px-3 py-1 text-sm font-medium rounded-md transition-colors {activeLocation === 'origin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+        aria-pressed={activeLocation === 'origin'}
         onclick={() => (activeLocation = 'origin')}
       >
         Origin
@@ -128,6 +129,7 @@
       <button
         type="button"
         class="px-3 py-1 text-sm font-medium rounded-md transition-colors {activeLocation === 'destination' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+        aria-pressed={activeLocation === 'destination'}
         onclick={() => (activeLocation = 'destination')}
       >
         Destination
