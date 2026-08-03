@@ -6,7 +6,8 @@ pytest
 pytest-asyncio
 sqlmodel
 apscheduler
-cryptography
+cryptography>=41.0.0
+pywebpush>=1.14.0
 tenacity
 cachetools
 apprise
