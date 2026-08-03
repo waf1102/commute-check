@@ -1,5 +1,6 @@
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
+from py_vapid import Vapid
 from app.models import User
 from app.push.models import PushSubscription
 from app.push.vapid import get_or_create_vapid_keys
@@ -22,6 +23,14 @@ def test_vapid_key_generation():
     assert private_key is not None
     assert public_key is not None
     assert len(public_key) > 20
+
+    # Verify private key is parseable by py_vapid
+    vapid_obj = Vapid.from_string(private_key)
+    assert vapid_obj is not None
+
+    # Verify public key is non-empty unpadded base64url string
+    assert not public_key.endswith("=")
+    assert not private_key.endswith("=")
 
 def test_push_subscription_model(session: Session):
     user = User(email="pushuser@example.com", hashed_password="hashed_pw")
