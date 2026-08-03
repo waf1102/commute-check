@@ -92,6 +92,27 @@ export async function getCommuteAssessment(queryParams: URLSearchParams): Promis
   return response.json();
 }
 
+export async function checkRoute(params: {
+  lat?: number;
+  lon?: number;
+  dest_name?: string;
+  dest_lat?: number | null;
+  dest_lon?: number | null;
+  schedule_time?: string;
+  return_schedule_time?: string;
+  commute_id?: number;
+}): Promise<RouteAssessmentResult> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to run route check');
+  }
+  return response.json();
+}
+
 export async function getCommuteStats(userId: string, startDate: string, endDate: string): Promise<any> {
   const queryParams = new URLSearchParams({
     user_id: userId,

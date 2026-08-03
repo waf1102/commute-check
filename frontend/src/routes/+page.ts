@@ -1,5 +1,5 @@
 import type { PageLoad } from './$types';
-import { getCommuteConfig, getCommuteAssessment } from '../lib/api';
+import { getCommuteConfig, checkRoute } from '../lib/api';
 import { get } from 'svelte/store';
 import { jwt_token } from '$lib/auth';
 
@@ -21,20 +21,19 @@ export const load: PageLoad = async () => {
             return { assessments: [], error: 'No commutes configured. Please visit Settings to create one.' };
         }
 
-        // 2. Fetch assessment for each commute
+        // 2. Fetch assessment for each commute using checkRoute
         const assessments = await Promise.all(commutes.map(async (commute: any) => {
-            const queryParams = new URLSearchParams({
-                lat: commute.lat.toString(),
-                lon: commute.lon.toString(),
-                min_temp: commute.min_temp_caution.toString(),
-                max_temp: '95', // Default from main.py if not specified
-                max_wind: commute.max_wind_caution.toString(),
-                max_precip: commute.rain_threshold.toString(),
-                unit_system: commute.unit_system || 'imperial'
-            });
-
             try {
-                const assessmentData = await getCommuteAssessment(queryParams);
+                const assessmentData = await checkRoute({
+                    commute_id: commute.id,
+                    lat: commute.lat,
+                    lon: commute.lon,
+                    dest_name: commute.dest_name,
+                    dest_lat: commute.dest_lat,
+                    dest_lon: commute.dest_lon,
+                    schedule_time: commute.schedule_time,
+                    return_schedule_time: commute.return_schedule_time
+                });
                 return { ...commute, assessment: assessmentData };
             } catch (e) {
                 return { ...commute, assessment: null, error: 'Assessment failed' };

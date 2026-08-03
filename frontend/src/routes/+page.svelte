@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { PageData } from './$types';
-    import { getWeatherForecast, type ForecastResponse } from '$lib/api';
+    import { getWeatherForecast, checkRoute, type ForecastResponse } from '$lib/api';
     import RiskGaugeCards from '$lib/charts/RiskGaugeCards.svelte';
     import HourlyWeatherChart from '$lib/charts/HourlyWeatherChart.svelte';
     import LegRiskCard from '$lib/components/LegRiskCard.svelte';
@@ -12,6 +12,7 @@
     let { data }: { data: PageData } = $props();
 
     let forecast = $state<ForecastResponse | null>(null);
+    let activeAssessments = $state(data.assessments || []);
 
     let dest_name = $state('');
     let dest_lat = $state<number | null>(null);
@@ -19,8 +20,15 @@
     let return_schedule_time = $state('17:00');
 
     onMount(async () => {
+        if (data.assessments && data.assessments.length > 0) {
+            const first = data.assessments[0];
+            if (first.dest_name) dest_name = first.dest_name;
+            if (first.dest_lat) dest_lat = first.dest_lat;
+            if (first.dest_lon) dest_lon = first.dest_lon;
+            if (first.return_schedule_time) return_schedule_time = first.return_schedule_time;
+        }
         try {
-            forecast = await getWeatherForecast();
+            forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
         } catch (e) {
             console.error('Error fetching weather forecast:', e);
         }
@@ -30,6 +38,23 @@
         if (e) e.preventDefault();
         try {
             forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
+            if (activeAssessments.length > 0) {
+                const primary = activeAssessments[0];
+                const newAssessment = await checkRoute({
+                    commute_id: primary.id,
+                    lat: primary.lat,
+                    lon: primary.lon,
+                    dest_name,
+                    dest_lat,
+                    dest_lon,
+                    schedule_time: primary.schedule_time || '08:00',
+                    return_schedule_time
+                });
+                activeAssessments = [
+                    { ...primary, dest_name, dest_lat, dest_lon, return_schedule_time, assessment: newAssessment },
+                    ...activeAssessments.slice(1)
+                ];
+            }
         } catch (err) {
             console.error('Error updating forecast with destination:', err);
         }
@@ -85,9 +110,9 @@
         <div class="card" style="border-color: var(--status-nogo)">
             <p>{data.error}</p>
         </div>
-    {:else if data.assessments && data.assessments.length > 0}
+    {:else if activeAssessments && activeAssessments.length > 0}
         <div class="dashboard-grid">
-            {#each data.assessments as item}
+            {#each activeAssessments as item}
                 <div class="commute-panel">
                     <h2>{item.name} <span class="time-badge">{item.schedule_time}</span></h2>
                     
