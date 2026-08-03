@@ -19,6 +19,8 @@ from .database import engine, get_session, create_db_and_tables
 from .security import router as auth_router, get_current_user
 from .analytics.routes import router as analytics_router
 from .weather.routes import router as weather_router
+from .push.routes import router as push_router
+from .notifications import NotificationService, dispatch_web_push_notification
 
 # --- Scheduler Setup ---
 JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
@@ -45,6 +47,9 @@ async def run_commute_check(commute_id: int):
         
         if commute.webhook_url:
             await notification_service_instance.send_notification(commute.webhook_url, assessment)
+        if commute.user_id:
+            title, body = notification_service_instance._format_message(assessment)
+            dispatch_web_push_notification(commute.user_id, title, body, session)
         print(f"Assessment complete for {commute.name}. Score: {assessment.score}")
 
 def schedule_commute_check(commute: Commute):
@@ -99,6 +104,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(analytics_router)
 app.include_router(weather_router)
+app.include_router(push_router)
 
 @app.get("/health")
 def health_check():

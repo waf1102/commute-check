@@ -1,10 +1,67 @@
 import apprise
 import logging
-from typing import Dict, Any, List
+import json
+from typing import Dict, Any, List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
-from .models import Status, AssessmentResult
+from pywebpush import webpush, WebPushException
+from sqlmodel import Session, select
+
+from .models import Status, AssessmentResult, User
+from .push.models import PushSubscription
+from .push.vapid import get_or_create_vapid_keys
 
 logger = logging.getLogger(__name__)
+
+def dispatch_web_push_notification(
+    user_id: int,
+    title: str,
+    body: str,
+    session: Session,
+    url: str = "/dashboard"
+) -> Dict[str, int]:
+    """
+    Sends WebPush notification payloads to active user PushSubscription entries.
+    Deletes subscriptions if push endpoint returns 404 or 410 (Gone).
+    """
+    subs = session.exec(
+        select(PushSubscription).where(PushSubscription.user_id == user_id)
+    ).all()
+
+    if not subs:
+        return {"delivered": 0, "failed": 0}
+
+    private_key, _ = get_or_create_vapid_keys()
+    user = session.get(User, user_id)
+    claims_sub = f"mailto:{user.email}" if user and user.email else "mailto:admin@commutecheck.com"
+
+    payload = json.dumps({
+        "title": title,
+        "body": body,
+        "url": url
+    })
+
+    delivered = 0
+    failed = 0
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": sub.endpoint,
+                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                },
+                data=payload,
+                vapid_private_key=private_key,
+                vapid_claims={"sub": claims_sub}
+            )
+            delivered += 1
+        except WebPushException as ex:
+            failed += 1
+            status_code = getattr(ex.response, "status_code", None) if hasattr(ex, "response") else None
+            if status_code in (404, 410):
+                session.delete(sub)
+
+    session.commit()
+    return {"delivered": delivered, "failed": failed}
 
 class NotificationService:
     def __init__(self):
@@ -80,3 +137,4 @@ class NotificationService:
                  raise Exception(f"Apprise failed to deliver notification to {webhook_url}")
              
         return success
+
