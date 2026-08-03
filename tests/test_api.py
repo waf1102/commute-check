@@ -1,3 +1,5 @@
+from app.models import UnitSystem
+from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import create_engine, Session, SQLModel
@@ -153,3 +155,97 @@ def test_assess_endpoint(client: TestClient):
         assert data["details"]["temperature"] == 70.0
 
 # The old test_assess_commute is removed as per the plan.
+
+def test_post_check_endpoint_with_destination(client: TestClient, session: Session):
+    user = create_test_user(session)
+    token = get_auth_token(email=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        def side_effect(lat, lon, unit_system=UnitSystem.IMPERIAL):
+            if lat == 37.7749:
+                return {
+                    "hourly": {
+                        "time": [f"2026-08-02T{h:02d}:00" for h in range(24)],
+                        "temperature_2m": [70.0] * 24,
+                        "apparent_temperature": [71.0] * 24,
+                        "wind_speed_10m": [8.0] * 24,
+                        "precipitation_probability": [0] * 24,
+                        "weather_code": [0] * 24
+                    }
+                }
+            else:
+                return {
+                    "hourly": {
+                        "time": [f"2026-08-02T{h:02d}:00" for h in range(24)],
+                        "temperature_2m": [65.0] * 24,
+                        "apparent_temperature": [66.0] * 24,
+                        "wind_speed_10m": [10.0] * 24,
+                        "precipitation_probability": [5] * 24,
+                        "weather_code": [0] * 24
+                    }
+                }
+        mock_fetch.side_effect = side_effect
+
+        check_payload = {
+            "name": "Work Commute",
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "dest_name": "Office",
+            "dest_lat": 37.3861,
+            "dest_lon": -122.0839,
+            "schedule_time": "08:00",
+            "return_schedule_time": "17:00"
+        }
+        response = client.post("/check", json=check_payload, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "overall_status" in data
+        assert "overall_score" in data
+        assert "outbound_leg" in data
+        assert "return_leg" in data
+        assert data["outbound_leg"]["location_name"] == "Work Commute -> Office"
+        assert data["return_leg"]["location_name"] == "Office -> Work Commute"
+
+def test_commutes_crud_endpoints(client: TestClient, session: Session):
+    user = create_test_user(session, email="crud@example.com")
+    token = get_auth_token(email=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # POST /commutes
+    commute_data = {
+        "name": "HQ Commute",
+        "lat": 37.7749,
+        "lon": -122.4194,
+        "dest_name": "Headquarters",
+        "dest_lat": 37.3861,
+        "dest_lon": -122.0839,
+        "schedule_time": "08:30",
+        "return_schedule_time": "17:30"
+    }
+    response = client.post("/commutes", json=commute_data, headers=headers)
+    assert response.status_code == 200
+    created = response.json()
+    assert created["dest_name"] == "Headquarters"
+    assert created["return_schedule_time"] == "17:30"
+    commute_id = created["id"]
+
+    # GET /commutes
+    response = client.get("/commutes", headers=headers)
+    assert response.status_code == 200
+    commutes_list = response.json()
+    assert len(commutes_list) == 1
+    assert commutes_list[0]["dest_name"] == "Headquarters"
+
+    # PUT /commutes/{commute_id}
+    updated_data = dict(commute_data)
+    updated_data["dest_name"] = "Branch Office"
+    response = client.put(f"/commutes/{commute_id}", json=updated_data, headers=headers)
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["dest_name"] == "Branch Office"
+
+    # DELETE /commutes/{commute_id}
+    response = client.delete(f"/commutes/{commute_id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted"}

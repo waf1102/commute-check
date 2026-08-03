@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from app.models import UnitSystem
 
 class ThresholdsSchema(BaseModel):
@@ -21,3 +21,4 @@ class ForecastResponse(BaseModel):
     unit_system: UnitSystem
     thresholds: ThresholdsSchema
     hourly: List[HourlyForecastItem]
+    destination_hourly: Optional[List[HourlyForecastItem]] = None

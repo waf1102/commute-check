@@ -209,3 +209,46 @@ async def test_weather_client_caching():
         res2 = await client.fetch_weather(40.0, -70.0)
         assert res2["hourly"]["temperature_2m"][0] == 70.0
         assert mock_get.call_count == 1  # No extra HTTP call
+
+from app.models import UnitSystem
+
+def test_get_forecast_with_destination(client: TestClient, session: Session):
+    user, commute1, commute2, token = create_user_and_token(session)
+    
+    with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        def side_effect(lat, lon, unit_system=UnitSystem.IMPERIAL):
+            if lat == 37.7749:
+                return {
+                    "hourly": {
+                        "time": ["2026-08-02T08:00"],
+                        "temperature_2m": [70.0],
+                        "apparent_temperature": [71.0],
+                        "wind_speed_10m": [8.0],
+                        "precipitation_probability": [0],
+                        "weather_code": [0]
+                    }
+                }
+            else:
+                return {
+                    "hourly": {
+                        "time": ["2026-08-02T08:00"],
+                        "temperature_2m": [65.0],
+                        "apparent_temperature": [66.0],
+                        "wind_speed_10m": [10.0],
+                        "precipitation_probability": [5],
+                        "weather_code": [0]
+                    }
+                }
+        mock_fetch.side_effect = side_effect
+        
+        response = client.get(
+            "/weather/forecast?lat=37.7749&lon=-122.4194&dest_lat=37.3861&dest_lon=-122.0839",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "hourly" in data
+        assert "destination_hourly" in data
+        assert data["destination_hourly"] is not None
+        assert len(data["destination_hourly"]) == 1
+        assert data["destination_hourly"][0]["temperature"] == 65.0

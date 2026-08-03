@@ -1,7 +1,34 @@
 import httpx
+import asyncio
+from typing import Optional, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from cachetools import TTLCache
 from .models import HourlyWeather, UnitSystem
+
+def parse_hourly_at_time(data: dict, target_time: Optional[str] = None) -> HourlyWeather:
+    hourly = data.get("hourly", {})
+    idx = 0
+    if target_time and "time" in hourly and hourly["time"]:
+        try:
+            hour = int(target_time.split(":")[0])
+            if 0 <= hour < len(hourly["time"]):
+                idx = hour
+        except Exception:
+            idx = 0
+    
+    def safe_val(arr, i, default=0.0):
+        if not arr or i >= len(arr) or arr[i] is None:
+            return default
+        return arr[i]
+
+    return HourlyWeather(
+        temperature=safe_val(hourly.get("temperature_2m"), idx),
+        apparent_temp=safe_val(hourly.get("apparent_temperature"), idx),
+        wind_speed=safe_val(hourly.get("wind_speed_10m"), idx),
+        wind_gusts=safe_val(hourly.get("wind_gusts_10m"), idx),
+        precip_prob=safe_val(hourly.get("precipitation_probability"), idx),
+        weather_code=int(safe_val(hourly.get("weather_code"), idx, default=0))
+    )
 
 class WeatherClient:
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
@@ -47,33 +74,10 @@ class WeatherClient:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        params = {
-            "latitude": lat,
-            "longitude": lon,
-            "hourly": "temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,weather_code",
-            "timezone": "auto",
-            "temperature_unit": "celsius" if unit_system == UnitSystem.METRIC else "fahrenheit",
-            "wind_speed_unit": "kmh" if unit_system == UnitSystem.METRIC else "mph",
-            "forecast_days": 1
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(self.BASE_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            hourly = data.get("hourly", {})
-            
-            result = HourlyWeather(
-                temperature=hourly.get("temperature_2m", [0])[0],
-                apparent_temp=hourly.get("apparent_temperature", [0])[0],
-                wind_speed=hourly.get("wind_speed_10m", [0])[0],
-                wind_gusts=hourly.get("wind_gusts_10m", [0])[0],
-                precip_prob=hourly.get("precipitation_probability", [0])[0],
-                weather_code=hourly.get("weather_code", [0])[0]
-            )
-            self._cache[cache_key] = result
-            return result
+        data = await self.fetch_weather(lat, lon, unit_system)
+        result = parse_hourly_at_time(data)
+        self._cache[cache_key] = result
+        return result
 
     @retry(
         stop=stop_after_attempt(3),
@@ -99,17 +103,7 @@ class WeatherClient:
             response = client.get(self.BASE_URL, params=params)
             response.raise_for_status()
             data = response.json()
-            
-            hourly = data.get("hourly", {})
-            
-            result = HourlyWeather(
-                temperature=hourly.get("temperature_2m", [0])[0],
-                apparent_temp=hourly.get("apparent_temperature", [0])[0],
-                wind_speed=hourly.get("wind_speed_10m", [0])[0],
-                wind_gusts=hourly.get("wind_gusts_10m", [0])[0],
-                precip_prob=hourly.get("precipitation_probability", [0])[0],
-                weather_code=hourly.get("weather_code", [0])[0]
-            )
+            result = parse_hourly_at_time(data)
             self._cache[cache_key] = result
             return result
 
@@ -117,3 +111,20 @@ _default_weather_client = WeatherClient()
 
 async def fetch_weather(lat: float, lon: float, unit_system: UnitSystem = UnitSystem.IMPERIAL) -> dict:
     return await _default_weather_client.fetch_weather(lat, lon, unit_system)
+
+async def fetch_route_weather(
+    origin_lat: float,
+    origin_lon: float,
+    dest_lat: Optional[float] = None,
+    dest_lon: Optional[float] = None,
+    unit_system: UnitSystem = UnitSystem.IMPERIAL
+) -> Tuple[dict, Optional[dict]]:
+    if dest_lat is not None and dest_lon is not None:
+        origin_data, dest_data = await asyncio.gather(
+            fetch_weather(origin_lat, origin_lon, unit_system=unit_system),
+            fetch_weather(dest_lat, dest_lon, unit_system=unit_system)
+        )
+        return origin_data, dest_data
+    else:
+        origin_data = await fetch_weather(origin_lat, origin_lon, unit_system=unit_system)
+        return origin_data, None
