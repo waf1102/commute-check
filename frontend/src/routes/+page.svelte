@@ -12,7 +12,15 @@
     let { data }: { data: PageData } = $props();
 
     let forecast = $state<ForecastResponse | null>(null);
-    let activeAssessments = $state(data.assessments || []);
+    let assessmentsOverride = $state<any[] | null>(null);
+    let activeAssessments = $derived(assessmentsOverride ?? (data.assessments || []));
+    let selectedIndex = $state(0);
+
+    let selectedCommute = $derived(
+        activeAssessments.length > 0
+            ? (activeAssessments[selectedIndex] ?? activeAssessments[0])
+            : null
+    );
 
     let dest_name = $state('');
     let dest_lat = $state<number | null>(null);
@@ -20,40 +28,72 @@
     let return_schedule_time = $state('17:00');
 
     onMount(async () => {
-        if (data.assessments && data.assessments.length > 0) {
-            const first = data.assessments[0];
-            if (first.dest_name) dest_name = first.dest_name;
-            if (first.dest_lat) dest_lat = first.dest_lat;
-            if (first.dest_lon) dest_lon = first.dest_lon;
-            if (first.return_schedule_time) return_schedule_time = first.return_schedule_time;
-        }
-        try {
-            forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
-        } catch (e) {
-            console.error('Error fetching weather forecast:', e);
+        const initial = (activeAssessments.length > 0 ? activeAssessments[selectedIndex] : null) ||
+                        (data.assessments && data.assessments.length > 0 ? data.assessments[0] : null);
+        if (initial) {
+            if (initial.dest_name) dest_name = initial.dest_name;
+            if (initial.dest_lat !== undefined && initial.dest_lat !== null) dest_lat = initial.dest_lat;
+            if (initial.dest_lon !== undefined && initial.dest_lon !== null) dest_lon = initial.dest_lon;
+            if (initial.return_schedule_time) return_schedule_time = initial.return_schedule_time;
+            try {
+                forecast = await getWeatherForecast(initial.id, initial.unit_system || 'imperial', dest_lat, dest_lon);
+            } catch (e) {
+                console.error('Error fetching weather forecast:', e);
+            }
+        } else {
+            try {
+                forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
+            } catch (e) {
+                console.error('Error fetching weather forecast:', e);
+            }
         }
     });
+
+    async function selectCommute(index: number) {
+        if (index < 0 || index >= activeAssessments.length) return;
+        selectedIndex = index;
+        const commute = activeAssessments[index];
+        if (!commute) return;
+
+        dest_name = commute.dest_name || '';
+        dest_lat = commute.dest_lat ?? null;
+        dest_lon = commute.dest_lon ?? null;
+        return_schedule_time = commute.return_schedule_time || '17:00';
+
+        try {
+            forecast = await getWeatherForecast(
+                commute.id,
+                commute.unit_system || 'imperial',
+                dest_lat,
+                dest_lon
+            );
+        } catch (e) {
+            console.error('Error fetching weather forecast:', e);
+            forecast = null;
+        }
+    }
 
     async function checkDestinationWeather(e?: Event) {
         if (e) e.preventDefault();
         try {
-            forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
-            if (activeAssessments.length > 0) {
-                const primary = activeAssessments[0];
+            const current = selectedCommute;
+            forecast = await getWeatherForecast(current?.id, current?.unit_system || 'imperial', dest_lat, dest_lon);
+            if (current) {
                 const newAssessment = await checkRoute({
-                    commute_id: primary.id,
-                    lat: primary.lat,
-                    lon: primary.lon,
+                    commute_id: current.id,
+                    lat: current.lat,
+                    lon: current.lon,
                     dest_name,
                     dest_lat,
                     dest_lon,
-                    schedule_time: primary.schedule_time || '08:00',
+                    schedule_time: current.schedule_time || '08:00',
                     return_schedule_time
                 });
-                activeAssessments = [
-                    { ...primary, dest_name, dest_lat, dest_lon, return_schedule_time, assessment: newAssessment },
-                    ...activeAssessments.slice(1)
-                ];
+                assessmentsOverride = activeAssessments.map((item, idx) =>
+                    idx === selectedIndex
+                        ? { ...item, dest_name, dest_lat, dest_lon, return_schedule_time, assessment: newAssessment }
+                        : item
+                );
             }
         } catch (err) {
             console.error('Error updating forecast with destination:', err);
@@ -80,6 +120,39 @@
     <h1>Commute Check Dashboard</h1>
 
     <PushNotificationToggle />
+
+    {#if activeAssessments && activeAssessments.length > 1}
+        <section class="card commute-switcher-card" data-testid="commute-switcher">
+            <div class="switcher-header">
+                <label for="commute-select" class="switcher-label">Select Commute:</label>
+                <select
+                    id="commute-select"
+                    data-testid="commute-select"
+                    class="commute-select"
+                    value={selectedIndex}
+                    onchange={(e) => selectCommute(Number((e.target as HTMLSelectElement).value))}
+                    aria-label="Select Commute"
+                >
+                    {#each activeAssessments as item, idx}
+                        <option value={idx}>{item.name} ({item.schedule_time})</option>
+                    {/each}
+                </select>
+            </div>
+            <div class="commute-tabs" role="tablist" aria-label="Commute selector tabs">
+                {#each activeAssessments as item, idx}
+                    <button
+                        type="button"
+                        role="tab"
+                        class="commute-tab-btn {idx === selectedIndex ? 'active' : ''}"
+                        aria-selected={idx === selectedIndex}
+                        onclick={() => selectCommute(idx)}
+                    >
+                        {item.name}
+                    </button>
+                {/each}
+            </div>
+        </section>
+    {/if}
 
     <section class="card destination-config-card">
         <h3>Route & Destination Configuration</h3>
@@ -110,56 +183,54 @@
         <div class="card" style="border-color: var(--status-nogo)">
             <p>{data.error}</p>
         </div>
-    {:else if activeAssessments && activeAssessments.length > 0}
+    {:else if selectedCommute}
         <div class="dashboard-grid">
-            {#each activeAssessments as item}
-                <div class="commute-panel">
-                    <h2>{item.name} <span class="time-badge">{item.schedule_time}</span></h2>
-                    
-                    {#if item.error}
-                        <div class="card" style="border-color: var(--status-nogo)">
-                            <p>Error: {item.error}</p>
+            <div class="commute-panel" data-testid="route-assessment-card">
+                <h2>{selectedCommute.name} <span class="time-badge">{selectedCommute.schedule_time}</span></h2>
+                
+                {#if selectedCommute.error}
+                    <div class="card" style="border-color: var(--status-nogo)">
+                        <p>Error: {selectedCommute.error}</p>
+                    </div>
+                {:else if selectedCommute.assessment?.outbound_leg || selectedCommute?.outbound_leg}
+                    <LegRiskCard
+                        outboundLeg={selectedCommute.assessment?.outbound_leg || selectedCommute?.outbound_leg}
+                        returnLeg={selectedCommute.assessment?.return_leg || selectedCommute?.return_leg}
+                    />
+                {:else if selectedCommute.assessment}
+                    <div class="card assessment-card">
+                        <div class="status-icon">
+                            {statusIcons[selectedCommute.assessment.status] || '❓'}
                         </div>
-                    {:else if item.assessment?.outbound_leg || item?.outbound_leg}
-                        <LegRiskCard
-                            outboundLeg={item.assessment?.outbound_leg || item?.outbound_leg}
-                            returnLeg={item.assessment?.return_leg || item?.return_leg}
-                        />
-                    {:else if item.assessment}
-                        <div class="card assessment-card">
-                            <div class="status-icon">
-                                {statusIcons[item.assessment.status] || '❓'}
-                            </div>
-                            <h2 class={statusClasses[item.assessment.status]}>
-                                {item.assessment.status}
-                            </h2>
-                            <p class="recommendation">{item.assessment.recommendation}</p>
-                        </div>
+                        <h2 class={statusClasses[selectedCommute.assessment.status]}>
+                            {selectedCommute.assessment.status}
+                        </h2>
+                        <p class="recommendation">{selectedCommute.assessment.recommendation}</p>
+                    </div>
 
-                        <div class="card weather-card">
-                            <h3>Weather Details</h3>
-                            <div class="metrics">
-                                <div class="metric">
-                                    <span>Temperature</span>
-                                    <span>{item.assessment.details?.temperature?.toFixed(1) ?? 'N/A'}{item.unit_system === 'metric' ? '°C' : '°F'}</span>
-                                </div>
-                                <div class="metric">
-                                    <span>Wind Speed</span>
-                                    <span>{item.assessment.details?.wind_speed?.toFixed(1) ?? 'N/A'} {item.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
-                                </div>
-                                <div class="metric">
-                                    <span>Rain Probability</span>
-                                    <span>{item.assessment.details?.precip_prob ?? 'N/A'}%</span>
-                                </div>
-                                <div class="metric score">
-                                    <span>Safety Score</span>
-                                    <span>{item.assessment.score}/100</span>
-                                </div>
+                    <div class="card weather-card">
+                        <h3>Weather Details</h3>
+                        <div class="metrics">
+                            <div class="metric">
+                                <span>Temperature</span>
+                                <span>{selectedCommute.assessment.details?.temperature?.toFixed(1) ?? 'N/A'}{selectedCommute.unit_system === 'metric' ? '°C' : '°F'}</span>
+                            </div>
+                            <div class="metric">
+                                <span>Wind Speed</span>
+                                <span>{selectedCommute.assessment.details?.wind_speed?.toFixed(1) ?? 'N/A'} {selectedCommute.unit_system === 'metric' ? 'km/h' : 'mph'}</span>
+                            </div>
+                            <div class="metric">
+                                <span>Rain Probability</span>
+                                <span>{selectedCommute.assessment.details?.precip_prob ?? 'N/A'}%</span>
+                            </div>
+                            <div class="metric score">
+                                <span>Safety Score</span>
+                                <span>{selectedCommute.assessment.score}/100</span>
                             </div>
                         </div>
-                    {/if}
-                </div>
-            {/each}
+                    </div>
+                {/if}
+            </div>
         </div>
     {/if}
 
@@ -183,6 +254,68 @@
 </div>
 
 <style>
+    .commute-switcher-card {
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .switcher-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .switcher-label {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .commute-select {
+        padding: 8px 12px;
+        border: 1px solid var(--border, #d1d5db);
+        border-radius: 6px;
+        font-size: 0.95rem;
+        background: white;
+        min-width: 220px;
+        color: #1f2937;
+    }
+
+    .commute-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--border, #e5e7eb);
+        padding-top: 10px;
+    }
+
+    .commute-tab-btn {
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--border, #d1d5db);
+        background: #f9fafb;
+        color: #374151;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .commute-tab-btn:hover {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+    }
+
+    .commute-tab-btn.active {
+        background: var(--primary, #3b82f6);
+        color: white;
+        border-color: var(--primary, #3b82f6);
+        font-weight: 600;
+    }
+
     .destination-config-card {
         margin-bottom: 20px;
     }

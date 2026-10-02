@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '$lib/api';
@@ -9,6 +9,7 @@ vi.mock('svelte-chartjs', () => ({
 
 vi.mock('$lib/api', () => ({
   getWeatherForecast: vi.fn(),
+  checkRoute: vi.fn(),
 }));
 
 describe('Dashboard Page (+page.svelte)', () => {
@@ -173,5 +174,186 @@ describe('Dashboard Page (+page.svelte)', () => {
 
     expect(screen.getByTestId('leg-risk-card')).toBeInTheDocument();
     expect(screen.getByText('Home -> Office')).toBeInTheDocument();
+  });
+
+  describe('Multi-Commute Switcher', () => {
+    const mockMultiCommuteData = {
+      assessments: [
+        {
+          id: 101,
+          name: 'Work Commute',
+          schedule_time: '08:00',
+          unit_system: 'imperial',
+          dest_name: 'Downtown Office',
+          dest_lat: 37.7749,
+          dest_lon: -122.4194,
+          return_schedule_time: '17:00',
+          assessment: {
+            status: 'Go',
+            score: 95,
+            recommendation: 'Great conditions for riding!',
+            details: {
+              temperature: 68.0,
+              apparent_temp: 68.0,
+              wind_speed: 8.0,
+              wind_gusts: 10.0,
+              precip_prob: 5,
+              weather_code: 0
+            }
+          }
+        },
+        {
+          id: 102,
+          name: 'Evening Gym Commute',
+          schedule_time: '18:30',
+          unit_system: 'imperial',
+          dest_name: 'Fitness Center',
+          dest_lat: 37.7833,
+          dest_lon: -122.4167,
+          return_schedule_time: '20:30',
+          assessment: {
+            status: 'Caution',
+            score: 65,
+            recommendation: 'Gusty winds expected later',
+            details: {
+              temperature: 55.0,
+              apparent_temp: 53.0,
+              wind_speed: 22.0,
+              wind_gusts: 30.0,
+              precip_prob: 20,
+              weather_code: 3
+            }
+          }
+        }
+      ]
+    };
+
+    const mockGymForecast = {
+      unit_system: 'imperial',
+      thresholds: {
+        min_temp_caution: 45,
+        min_temp_no_go: 38,
+        max_wind_caution: 15,
+        max_wind_no_go: 25,
+        rain_threshold: 30
+      },
+      hourly: [
+        {
+          time: '2026-08-02T18:00',
+          temperature: 55.0,
+          apparent_temp: 53.0,
+          wind_speed: 22.0,
+          precip_prob: 20,
+          weather_code: 3
+        }
+      ]
+    };
+
+    it('does not render commute switcher when only one commute exists', () => {
+      (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+      render(Page, { data: mockPageData });
+
+      expect(screen.queryByTestId('commute-switcher')).not.toBeInTheDocument();
+    });
+
+    it('renders commute switcher dropdown and tabs when multiple commutes exist in account', () => {
+      (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+      render(Page, { data: mockMultiCommuteData });
+
+      expect(screen.getByTestId('commute-switcher')).toBeInTheDocument();
+      expect(screen.getByTestId('commute-select')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Work Commute' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Evening Gym Commute' })).toBeInTheDocument();
+    });
+
+    it('selecting a different commute via tab selector updates route assessment card, weather chart, and risk gauges', async () => {
+      (api.getWeatherForecast as any).mockResolvedValueOnce(mockForecast);
+      (api.getWeatherForecast as any).mockResolvedValueOnce(mockGymForecast);
+
+      render(Page, { data: mockMultiCommuteData });
+
+      // Initially displays first commute
+      const initialCard = within(screen.getByTestId('route-assessment-card'));
+      expect(initialCard.getByText('Work Commute')).toBeInTheDocument();
+      expect(initialCard.getByText('Go')).toBeInTheDocument();
+      expect(initialCard.getByText('Great conditions for riding!')).toBeInTheDocument();
+
+      // Click the tab for the second commute
+      const gymTab = screen.getByRole('tab', { name: 'Evening Gym Commute' });
+      await fireEvent.click(gymTab);
+
+      // Route assessment card updates dynamically
+      const updatedCard = within(screen.getByTestId('route-assessment-card'));
+      expect(updatedCard.getByText('Evening Gym Commute')).toBeInTheDocument();
+      expect(updatedCard.getByText('Caution')).toBeInTheDocument();
+      expect(updatedCard.getByText('Gusty winds expected later')).toBeInTheDocument();
+      expect(updatedCard.queryByText('Great conditions for riding!')).not.toBeInTheDocument();
+
+      // Weather forecast fetched for second commute with destination coordinates
+      expect(api.getWeatherForecast).toHaveBeenCalledWith(102, 'imperial', 37.7833, -122.4167);
+
+      // Weather visualizations reflect second commute
+      expect(await screen.findByRole('heading', { name: /Weather Visualizations/i })).toBeInTheDocument();
+      expect(await screen.findByTestId('risk-gauge-cards')).toBeInTheDocument();
+      expect(await screen.findByTestId('hourly-weather-chart')).toBeInTheDocument();
+    });
+
+    it('selecting a different commute via dropdown updates destination fields and assessment card', async () => {
+      (api.getWeatherForecast as any).mockResolvedValueOnce(mockForecast);
+      (api.getWeatherForecast as any).mockResolvedValueOnce(mockGymForecast);
+
+      render(Page, { data: mockMultiCommuteData });
+
+      const select = screen.getByTestId('commute-select') as HTMLSelectElement;
+      await fireEvent.change(select, { target: { value: '1' } });
+
+      const updatedCard = within(screen.getByTestId('route-assessment-card'));
+      expect(updatedCard.getByText('Evening Gym Commute')).toBeInTheDocument();
+      expect(updatedCard.getByText('Caution')).toBeInTheDocument();
+
+      // Destination form fields update to the selected commute
+      expect(screen.getByLabelText(/Destination Name/i)).toHaveValue('Fitness Center');
+      expect(screen.getByLabelText(/Destination Latitude/i)).toHaveValue(37.7833);
+      expect(screen.getByLabelText(/Destination Longitude/i)).toHaveValue(-122.4167);
+      expect(screen.getByLabelText(/Return Schedule Time/i)).toHaveValue('20:30');
+    });
+
+    it('submitting destination form updates forecast and route assessment for selected commute', async () => {
+      (api.getWeatherForecast as any).mockResolvedValue(mockGymForecast);
+      const updatedAssessment = {
+        status: 'Go',
+        score: 90,
+        recommendation: 'Conditions improved for gym ride',
+        details: {
+          temperature: 60.0,
+          apparent_temp: 60.0,
+          wind_speed: 10.0,
+          wind_gusts: 12.0,
+          precip_prob: 0,
+          weather_code: 0
+        }
+      };
+      (api.checkRoute as any).mockResolvedValue(updatedAssessment);
+
+      render(Page, { data: mockMultiCommuteData });
+
+      // Switch to gym commute
+      const select = screen.getByTestId('commute-select') as HTMLSelectElement;
+      await fireEvent.change(select, { target: { value: '1' } });
+
+      // Update destination name and submit
+      const destNameInput = screen.getByLabelText(/Destination Name/i);
+      await fireEvent.input(destNameInput, { target: { value: 'New Fitness Center' } });
+
+      const form = destNameInput.closest('form')!;
+      await fireEvent.submit(form);
+
+      expect(api.checkRoute).toHaveBeenCalledWith(expect.objectContaining({
+        commute_id: 102,
+        dest_name: 'New Fitness Center'
+      }));
+
+      expect(await screen.findByText('Conditions improved for gym ride')).toBeInTheDocument();
+    });
   });
 });
