@@ -45,7 +45,7 @@ export interface ForecastResponse {
   destination_hourly?: HourlyForecastItem[];
 }
 
-async function authenticatedFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
+export async function authenticatedFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const token = get(jwt_token);
   const headers = new Headers(init?.headers);
 
@@ -80,6 +80,40 @@ export async function getCommuteConfig(): Promise<any> {
   const response = await authenticatedFetch(`${API_BASE_URL}/config`);
   if (!response.ok) {
     throw new Error('Failed to fetch commute config');
+  }
+  return response.json();
+}
+
+export async function saveCommuteConfig(config: any): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to save commute config');
+  }
+  return response.json();
+}
+
+export async function deleteCommuteConfig(id: number): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/config/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete commute config');
+  }
+  return response.json();
+}
+
+export async function testWebhook(config: any): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/test-webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to test webhook');
   }
   return response.json();
 }

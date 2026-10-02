@@ -21,7 +21,7 @@
 		<a href="/settings">Settings</a>
 		{#if $jwt_token}
 			<span>Hello, {userEmail}</span>
-			<button on:click={logout}>Logout</button>
+			<button onclick={logout}>Logout</button>
 		{:else}
 			<a href="/login">Login</a>
 			<a href="/register">Register</a>

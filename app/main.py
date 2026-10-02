@@ -112,11 +112,13 @@ def health_check():
     return {"status": "healthy"}
 
 @app.get("/config", response_model=List[Commute])
+@app.get("/api/config", response_model=List[Commute])
 def read_config(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     commutes = session.exec(select(Commute).where(Commute.user_id == user.id)).all()
     return commutes
 
 @app.post("/config", response_model=Commute)
+@app.post("/api/config", response_model=Commute)
 def create_or_update_config(commute_data: Commute, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     if commute_data.id:
         existing_commute = session.get(Commute, commute_data.id)
@@ -153,6 +155,7 @@ def create_or_update_config(commute_data: Commute, session: Session = Depends(ge
     return commute_to_return
 
 @app.delete("/config/{commute_id}")
+@app.delete("/api/config/{commute_id}")
 def delete_config(commute_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     commute = session.get(Commute, commute_id)
     if not commute or commute.user_id != user.id:
@@ -205,6 +208,7 @@ async def assess_weather(
     return assessment
 
 @app.post("/test-webhook", response_model=AssessmentResult)
+@app.post("/api/test-webhook", response_model=AssessmentResult)
 async def test_webhook(commute: CommuteCreate):
     """
     Manually trigger a notification test for given coordinates and thresholds.

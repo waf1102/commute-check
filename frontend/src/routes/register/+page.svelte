@@ -2,12 +2,13 @@
   import { register } from '$lib/auth';
   import { goto } from '$app/navigation';
 
-  let email = '';
-  let password = '';
-  let error: string | null = null;
-  let loading = false;
+  let email = $state('');
+  let password = $state('');
+  let error = $state<string | null>(null);
+  let loading = $state(false);
 
-  async function handleSubmit() {
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
     loading = true;
     error = null;
     try {
@@ -23,7 +24,7 @@
 
 <div class="register-container">
   <h1>Register</h1>
-  <form on:submit|preventDefault={handleSubmit}>
+  <form onsubmit={handleSubmit}>
     <div class="form-group">
       <label for="email">Email</label>
       <input type="email" id="email" bind:value={email} required />
