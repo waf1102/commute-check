@@ -19,6 +19,7 @@ from .notifications import NotificationService
 from .database import engine, get_session, create_db_and_tables
 from .security import router as auth_router, get_current_user
 from .analytics.routes import router as analytics_router
+from .analytics.service import record_assessment_run, log_assessment_run
 from .weather.routes import router as weather_router
 from .push.routes import router as push_router
 from .notifications import NotificationService, dispatch_web_push_notification
@@ -34,40 +35,135 @@ engine_instance = AssessmentEngine()
 client_instance = WeatherClient()
 notification_service_instance = NotificationService()
 
-async def run_commute_check(commute_id: int):
-    """ Fetch commute, run assessment, and send notification. """
+def clear_commute_jobs(commute_id: int):
+    """Removes all scheduled jobs for a commute."""
+    for job_id in [
+        f"commute_check_{commute_id}_outbound",
+        f"commute_check_{commute_id}_return",
+        f"commute_check_{commute_id}",
+    ]:
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+
+async def run_commute_check(commute_id: int, leg_type: str = "outbound"):
+    """ Fetch commute, run route assessment, and send notification for corresponding leg. """
     with Session(engine) as session:
         commute = session.get(Commute, commute_id)
         if not commute:
             print(f"Error: Could not find commute with id {commute_id}")
-            return
+            return None
 
-        print(f"Running assessment for commute: {commute.name}")
-        weather = await client_instance.get_hourly_weather(commute.lat, commute.lon, commute.unit_system)
-        assessment = engine_instance.assess(weather, commute)
-        
+        print(f"Running assessment for commute: {commute.name} (leg: {leg_type})")
+        try:
+            origin_raw, dest_raw = await app_client.fetch_route_weather(
+                commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
+            )
+        except Exception as e:
+            print(f"Error fetching route weather for commute {commute_id}: {e}")
+            return None
+
+        outbound_time = commute.schedule_time or "08:00"
+        return_time = commute.return_schedule_time or "17:00"
+
+        from .client import parse_hourly_at_time
+        origin_outbound = parse_hourly_at_time(origin_raw, outbound_time)
+        origin_return = parse_hourly_at_time(origin_raw, return_time) if return_time else None
+
+        if dest_raw:
+            dest_outbound = parse_hourly_at_time(dest_raw, outbound_time)
+            dest_return = parse_hourly_at_time(dest_raw, return_time) if return_time else None
+        else:
+            dest_outbound = None
+            dest_return = None
+
+        route_assessment = engine_instance.assess_route(
+            origin_outbound_weather=origin_outbound,
+            dest_outbound_weather=dest_outbound,
+            dest_return_weather=dest_return,
+            origin_return_weather=origin_return,
+            commute=commute
+        )
+
+        leg_key = leg_type.lower()
+        if "return" in leg_key and route_assessment.return_leg:
+            leg_assessment = route_assessment.return_leg
+        else:
+            leg_assessment = route_assessment.outbound_leg
+
         if commute.webhook_url:
-            await notification_service_instance.send_notification(commute.webhook_url, assessment)
+            await notification_service_instance.send_notification(
+                commute.webhook_url, leg_assessment, leg_type=leg_type
+            )
         if commute.user_id:
-            title, body = notification_service_instance._format_message(assessment)
+            title, body = notification_service_instance._format_message(leg_assessment, leg_type=leg_type)
             dispatch_web_push_notification(commute.user_id, title, body, session)
-        print(f"Assessment complete for {commute.name}. Score: {assessment.score}")
+
+        # Automatically persist assessment run
+        try:
+            record_assessment_run(
+                session=session,
+                user_id=commute.user_id,
+                commute_id=commute.id,
+                assessment=leg_assessment,
+                leg_type=leg_type,
+                overall_status=route_assessment.overall_status.value if hasattr(route_assessment.overall_status, "value") else str(route_assessment.overall_status),
+                overall_score=float(route_assessment.overall_score),
+            )
+        except Exception as e:
+            print(f"Failed to persist assessment history: {e}")
+
+        print(f"Assessment complete for {commute.name} ({leg_type}). Score: {leg_assessment.score}")
+        return leg_assessment
 
 def schedule_commute_check(commute: Commute):
-    """Adds or updates a job in the scheduler for a given commute."""
-    job_id = f"commute_check_{commute.id}"
-    
-    scheduler.add_job(
-        run_commute_check,
-        'cron',
-        hour=commute.schedule_time.split(':')[0],
-        minute=commute.schedule_time.split(':')[1],
-        day_of_week=commute.days_of_week,
-        id=job_id,
-        args=[commute.id],
-        replace_existing=True,
-    )
-    print(f"Scheduled job '{job_id}' to run at {commute.schedule_time} on days: {commute.days_of_week}.")
+    """Adds or updates independent outbound and return jobs in the scheduler for a given commute."""
+    if commute.id is None:
+        return
+
+    # Clean up legacy job if present
+    legacy_job_id = f"commute_check_{commute.id}"
+    if scheduler.get_job(legacy_job_id):
+        scheduler.remove_job(legacy_job_id)
+
+    # 1. Outbound job
+    outbound_job_id = f"commute_check_{commute.id}_outbound"
+    if scheduler.get_job(outbound_job_id):
+        scheduler.remove_job(outbound_job_id)
+
+    if commute.schedule_time:
+        parts = commute.schedule_time.strip().split(":")
+        outbound_hour, outbound_minute = parts[0].strip(), parts[1].strip()
+        scheduler.add_job(
+            run_commute_check,
+            "cron",
+            hour=outbound_hour,
+            minute=outbound_minute,
+            day_of_week=commute.days_of_week or "mon-fri",
+            id=outbound_job_id,
+            args=[commute.id, "outbound"],
+            replace_existing=True,
+        )
+        print(f"Scheduled outbound job '{outbound_job_id}' to run at {commute.schedule_time} on days: {commute.days_of_week}.")
+
+    # 2. Return job
+    return_job_id = f"commute_check_{commute.id}_return"
+    if scheduler.get_job(return_job_id):
+        scheduler.remove_job(return_job_id)
+
+    if commute.return_schedule_time and commute.return_schedule_time.strip():
+        parts = commute.return_schedule_time.strip().split(":")
+        return_hour, return_minute = parts[0].strip(), parts[1].strip()
+        scheduler.add_job(
+            run_commute_check,
+            "cron",
+            hour=return_hour,
+            minute=return_minute,
+            day_of_week=commute.days_of_week or "mon-fri",
+            id=return_job_id,
+            args=[commute.id, "return"],
+            replace_existing=True,
+        )
+        print(f"Scheduled return job '{return_job_id}' to run at {commute.return_schedule_time} on days: {commute.days_of_week}.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -104,6 +200,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(analytics_router)
+app.include_router(analytics_router, prefix="/api")
 app.include_router(weather_router)
 app.include_router(push_router)
 
@@ -165,9 +262,7 @@ def delete_config(commute_id: int, session: Session = Depends(get_session), user
     session.commit()
 
     # Remove from scheduler
-    job_id = f"commute_check_{commute_id}"
-    if scheduler.get_job(job_id):
-        scheduler.remove_job(job_id)
+    clear_commute_jobs(commute_id)
 
     return {"status": "deleted"}
 

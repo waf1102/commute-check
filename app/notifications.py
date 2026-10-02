@@ -67,36 +67,85 @@ class NotificationService:
     def __init__(self):
         pass
 
-    def _format_message(self, assessment: AssessmentResult) -> tuple[str, str]:
+    def _format_message(
+        self,
+        assessment: Any,
+        leg_type: Optional[str] = None
+    ) -> tuple[str, str]:
         """
         Formats the assessment result into a title and body.
+        Clearly specifies the leg type (Morning Outbound vs Evening Return) and specific risk factors.
         """
-        title = f"🏍️ Commute Check: {assessment.status.value}"
-        
-        body = assessment.recommendation + "\n\n"
+        resolved_leg = leg_type or getattr(assessment, "leg_type", None)
+        leg_label = None
+        if resolved_leg:
+            leg_lower = str(resolved_leg).lower()
+            if "outbound" in leg_lower or "morning" in leg_lower:
+                leg_label = "Morning Outbound"
+            elif "return" in leg_lower or "evening" in leg_lower:
+                leg_label = "Evening Return"
+            else:
+                leg_label = str(resolved_leg)
+
+        status_val = getattr(assessment.status, "value", str(assessment.status))
+        if leg_label:
+            title = f"🏍️ Commute Check ({leg_label}): {status_val}"
+        else:
+            title = f"🏍️ Commute Check: {status_val}"
+
+        recommendation = getattr(assessment, "recommendation", None)
+        if not recommendation:
+            if status_val == Status.GO.value or assessment.status == Status.GO:
+                recommendation = "Enjoy your ride!"
+            elif status_val == Status.CAUTION.value or assessment.status == Status.CAUTION:
+                recommendation = "Ride with caution. Wear appropriate gear."
+            else:
+                recommendation = "Riding not recommended."
+
+        body = ""
+        if leg_label:
+            loc_name = getattr(assessment, "location_name", None)
+            sched_time = getattr(assessment, "schedule_time", None)
+            leg_header = f"Leg: {leg_label}"
+            if loc_name:
+                leg_header += f" ({loc_name})"
+            if sched_time:
+                leg_header += f" at {sched_time}"
+            body += leg_header + "\n\n"
+
+        body += recommendation + "\n\n"
         body += f"Score: {assessment.score}/100\n"
-        
-        if assessment.details:
-            body += f"Temp: {assessment.details.temperature}°F, Wind: {assessment.details.wind_speed} mph, Rain: {assessment.details.precip_prob}%\n"
-            
+
+        weather = getattr(assessment, "details", None) or getattr(assessment, "weather", None)
+        if weather:
+            body += f"Temp: {weather.temperature}°F, Wind: {weather.wind_speed} mph, Rain: {weather.precip_prob}%\n"
+
         if assessment.reasons:
             reasons_str = "\n".join([f"• {r}" for r in assessment.reasons])
-            body += f"\nReasons:\n{reasons_str}"
-            
+            body += f"\nRisk Factors:\n{reasons_str}"
+
         return title, body
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
-    async def send_notification(self, webhook_url: str, assessment: AssessmentResult) -> bool:
+    async def send_notification(
+        self,
+        webhook_url: str,
+        assessment: Any,
+        leg_type: Optional[str] = None
+    ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
-        # Apprise is synchronous, we'll run it in the current thread for now
-        # as it's called from an async context in the scheduler.
-        return self.send_notification_sync(webhook_url, assessment)
+        return self.send_notification_sync(webhook_url, assessment, leg_type=leg_type)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
-    def send_notification_sync(self, webhook_url: str, assessment: AssessmentResult) -> bool:
+    def send_notification_sync(
+        self,
+        webhook_url: str,
+        assessment: Any,
+        leg_type: Optional[str] = None
+    ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
@@ -111,15 +160,16 @@ class NotificationService:
             
         apobj.add(webhook_url)
         
-        title, body = self._format_message(assessment)
+        title, body = self._format_message(assessment, leg_type=leg_type)
         
         # Map Status to Apprise notify type
+        status_val = getattr(assessment.status, "value", str(assessment.status))
         notify_type = apprise.NotifyType.INFO
-        if assessment.status == Status.GO:
+        if status_val == Status.GO.value or assessment.status == Status.GO:
             notify_type = apprise.NotifyType.SUCCESS
-        elif assessment.status == Status.CAUTION:
+        elif status_val == Status.CAUTION.value or assessment.status == Status.CAUTION:
             notify_type = apprise.NotifyType.WARNING
-        elif assessment.status == Status.NO_GO:
+        elif status_val == Status.NO_GO.value or assessment.status == Status.NO_GO:
             notify_type = apprise.NotifyType.FAILURE
             
         success = apobj.notify(
@@ -129,12 +179,10 @@ class NotificationService:
         )
         
         if not success:
-             # If apobj has no services, it returns False.
-             # If it fails to send, it returns False.
-             logger.error(f"Failed to send notification via Apprise to {webhook_url}")
-             # We raise an exception to trigger tenacity retry if it failed
-             if len(apobj) > 0:
-                 raise Exception(f"Apprise failed to deliver notification to {webhook_url}")
-             
+            logger.error(f"Failed to send notification via Apprise to {webhook_url}")
+            if len(apobj) > 0:
+                raise Exception(f"Apprise failed to deliver notification to {webhook_url}")
+              
         return success
+
 
