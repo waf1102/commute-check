@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, create_engine, SQLModel, select
@@ -8,6 +9,16 @@ from app.models import User # Assuming User model is defined
 # Setup an in-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=False)
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_db():
+    yield
+    engine.dispose()
+    if os.path.exists("./test.db"):
+        try:
+            os.remove("./test.db")
+        except OSError:
+            pass
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

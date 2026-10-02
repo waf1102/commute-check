@@ -1,5 +1,6 @@
 from app.models import UnitSystem
 from unittest.mock import AsyncMock
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import create_engine, Session, SQLModel
@@ -12,6 +13,16 @@ from datetime import datetime, timedelta, timezone
 
 DATABASE_URL = "sqlite:///./test.db"
 engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_db():
+    yield
+    engine.dispose()
+    if os.path.exists("./test.db"):
+        try:
+            os.remove("./test.db")
+        except OSError:
+            pass
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

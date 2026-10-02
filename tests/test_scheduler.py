@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlmodel import Session, SQLModel, create_engine
@@ -14,6 +15,16 @@ from app.notifications import NotificationService
 
 TEST_DB_URL = "sqlite:///./test_scheduler.db"
 test_engine = create_engine(TEST_DB_URL, echo=False, connect_args={"check_same_thread": False})
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_db():
+    yield
+    test_engine.dispose()
+    if os.path.exists("./test_scheduler.db"):
+        try:
+            os.remove("./test_scheduler.db")
+        except OSError:
+            pass
 
 
 @pytest.fixture(autouse=True)

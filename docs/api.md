@@ -225,25 +225,52 @@ Authentication required (`Authorization: Bearer <token>`).
 Retrieve daily aggregated riding statistics and assessment logs within a date range.
 
 - **Query Parameters**:
-  - `user_id` (`int`)
-  - `start_date` (`YYYY-MM-DD`)
-  - `end_date` (`YYYY-MM-DD`)
-- **Response (`200 OK`)**: Array of daily statistics and decision breakdowns.
+  - `user_id` (`int`, required): Must match authenticated user ID.
+  - `start_date` (`YYYY-MM-DD`, required): Start of report period.
+  - `end_date` (`YYYY-MM-DD`, required): End of report period.
+- **Response (`200 OK`)**: Array of `DailyCommuteStats` objects:
+  ```json
+  [
+    {
+      "date": "2026-10-01",
+      "days_ridden": 1,
+      "days_driven": 0,
+      "days_total": 1,
+      "avg_score": 88.5
+    }
+  ]
+  ```
 
 ### `POST /analytics/record-decision` (also `/api/analytics/record-decision`)
 Record or update whether the user rode or drove for their commute.
 
-- **Request Body**:
+- **Request Body**: `DecisionRecordRequest` schema:
   ```json
   {
     "commute_id": 1,
     "decision": "riding",
     "commute_distance_km": 15.0,
     "duration_minutes": 30.0,
-    "assessment_history_id": 42
+    "assessment_history_id": 42,
+    "notes": "Clear morning ride"
   }
   ```
-- **Response (`200 OK`)**: `DecisionRecordResponse` with updated assessment history details.
+- **Response (`200 OK`)**: `DecisionRecordResponse` schema:
+  ```json
+  {
+    "id": 42,
+    "user_id": 1,
+    "commute_id": 1,
+    "commute_type": "riding",
+    "timestamp": "2026-10-01T12:00:00Z",
+    "leg_type": "outbound",
+    "overall_status": "Go",
+    "overall_score": 88.5,
+    "commute_distance_km": 15.0,
+    "duration_minutes": 30.0,
+    "created_at": "2026-10-01T12:00:00Z"
+  }
+  ```
 
 ---
 

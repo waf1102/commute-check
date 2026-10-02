@@ -6,11 +6,22 @@ from app.models import User, Commute, CommuteCreate
 from app.security import ALGORITHM, SECRET_KEY, create_access_token, get_password_hash
 from jose import jwt
 from datetime import datetime, timedelta, timezone
+import os
 import pytest
 
 # Setup in-memory SQLite for testing
 DATABASE_URL = "sqlite:///./test.db"
 engine = create_engine(DATABASE_URL, echo=False)
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_db():
+    yield
+    engine.dispose()
+    if os.path.exists("./test.db"):
+        try:
+            os.remove("./test.db")
+        except OSError:
+            pass
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

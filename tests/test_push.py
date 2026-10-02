@@ -12,10 +12,21 @@ from app.database import get_session
 from app.models import User
 from app.push.models import PushSubscription
 from app.push.vapid import get_or_create_vapid_keys
+import os
 from app.security import ALGORITHM, SECRET_KEY, get_password_hash
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_push.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=False)
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_db():
+    yield
+    engine.dispose()
+    if os.path.exists("./test_push.db"):
+        try:
+            os.remove("./test_push.db")
+        except OSError:
+            pass
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

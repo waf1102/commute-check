@@ -103,7 +103,8 @@ Evaluates meteorological parameters against user-configured comfort/safety thres
 
 #### D. Persistent Scheduler (`app/main.py`)
 - Background `AsyncIOScheduler` dynamically manages cron jobs corresponding to active user commutes.
-- Evaluates conditions ahead of scheduled departure times and triggers notification dispatch.
+- Registers independent outbound (`commute_check_{id}_outbound`) and return (`commute_check_{id}_return`) cron jobs when return schedule times are configured.
+- Evaluates route weather conditions (origin and destination) ahead of departure times and triggers contextual notification dispatch (specifying leg type and destination).
 - Rehydrates and synchronizes jobs on application startup from `Commute` database records.
 
 ---
@@ -148,3 +149,15 @@ Evaluates meteorological parameters against user-configured comfort/safety thres
 - **Network-First Forecast Caching**: Intercepts `/weather/forecast` requests to allow offline inspection of recent forecast assessments.
 - **Offline Banner (`OfflineBanner.svelte`)**: Automatically warns the user when connectivity is lost and displays cached assessment data.
 - **Push Notification Listener**: Receives background push messages from OS push services and triggers native browser notification banners even when the tab is closed.
+
+---
+
+## 5. Continuous Integration & Quality Assurance
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) automatically validates code changes on push and pull requests targeting `main`:
+- **Backend Testing**: Executes `pytest tests/` with automatic temporary database teardown and clean-up fixtures.
+- **Frontend Testing & Verification**:
+  - `npx vitest run`: Executes unit and integration tests across components, routes, and stores.
+  - `npm run check`: Runs `svelte-check` with TypeScript type validation.
+  - `npm run build`: Verifies successful production build and bundle compilation.
+- **Repository Hygiene**: Enforces exclusion of compiled Python bytecode caches (`__pycache__`, `*.pyc`) and temporary SQLite test databases (`test*.db`).
