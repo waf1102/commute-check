@@ -1,7 +1,7 @@
 import pytest
 from sqlmodel import create_engine, Session, SQLModel
 from app.models import User, AssessmentHistory
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # In-memory SQLite database for testing
 @pytest.fixture(name="session")
@@ -20,7 +20,7 @@ def test_store_and_retrieve_assessment_history(session: Session):
     session.refresh(user)
 
     # Create an AssessmentHistory instance
-    assessment_time = datetime.utcnow() - timedelta(hours=1)
+    assessment_time = datetime.now(timezone.utc) - timedelta(hours=1)
     assessment = AssessmentHistory(
         user_id=user.id,
         timestamp=assessment_time,

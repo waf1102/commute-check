@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Dict, Any
 
 from sqlmodel import Session, select
@@ -17,8 +17,8 @@ def get_daily_commute_stats(
     """
     # Fetch raw data for the user within the date range
     # Convert date objects to datetime for comparison with AssessmentHistory.timestamp
-    start_datetime = datetime(start_date.year, start_date.month, start_date.day)
-    end_datetime = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59) # End of the day
+    start_datetime = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+    end_datetime = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc) # End of the day
 
     raw_data = db.exec(
         select(AssessmentHistory).where(
