@@ -10,6 +10,7 @@ vi.mock('svelte-chartjs', () => ({
 
 vi.mock('$lib/api', () => ({
   getCommuteStats: vi.fn(),
+  recordDecision: vi.fn(),
 }));
 
 vi.mock('$lib/auth', () => ({
@@ -30,6 +31,10 @@ describe('History Page', () => {
         { date: '2023-01-02', days_ridden: 3, days_driven: 4 },
       ],
     });
+    (api.recordDecision as any).mockResolvedValue({
+      id: 1,
+      commute_type: 'riding',
+    });
   });
 
   it('renders without crashing', async () => {
@@ -38,6 +43,8 @@ describe('History Page', () => {
     expect(screen.getByLabelText(/Start Date/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/End Date/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Rode/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Drove/i })).toBeInTheDocument();
   });
 
   it('fetches data on mount with default dates and displays chart', async () => {
@@ -50,6 +57,35 @@ describe('History Page', () => {
     );
 
     expect(await screen.findByTestId('commute-history-chart')).toBeInTheDocument();
+  });
+
+  it('handles raw array responses from analytics API and renders chart', async () => {
+    (api.getCommuteStats as any).mockResolvedValueOnce([
+      { date: '2023-03-01', days_ridden: 4, days_driven: 1, avg_score: 85.0 },
+      { date: '2023-03-02', days_ridden: 2, days_driven: 3, avg_score: 75.0 },
+    ]);
+
+    render(HistoryPage);
+    expect(await screen.findByTestId('commute-history-chart')).toBeInTheDocument();
+  });
+
+  it('records ride decision and refreshes data', async () => {
+    render(HistoryPage);
+    const rideButton = screen.getByRole('button', { name: /Rode/i });
+    await fireEvent.click(rideButton);
+
+    expect(api.recordDecision).toHaveBeenCalledWith({ decision: 'riding' });
+    expect(await screen.findByText(/Recorded today's commute as Riding/i)).toBeInTheDocument();
+    expect(api.getCommuteStats).toHaveBeenCalledTimes(2);
+  });
+
+  it('records drive decision and refreshes data', async () => {
+    render(HistoryPage);
+    const driveButton = screen.getByRole('button', { name: /Drove/i });
+    await fireEvent.click(driveButton);
+
+    expect(api.recordDecision).toHaveBeenCalledWith({ decision: 'driving' });
+    expect(await screen.findByText(/Recorded today's commute as Driving/i)).toBeInTheDocument();
   });
 
   it('refetches data when dates are changed and refresh is clicked', async () => {
@@ -79,3 +115,4 @@ describe('History Page', () => {
     expect(await screen.findByText(/Error fetching commute data:/i)).toBeInTheDocument();
   });
 });
+

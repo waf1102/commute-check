@@ -160,6 +160,29 @@ export async function getCommuteStats(userId: string, startDate: string, endDate
   return response.json();
 }
 
+export async function recordDecision(params: {
+  commute_id?: number;
+  decision?: 'riding' | 'driving' | string;
+  commute_type?: string;
+  date?: string;
+  timestamp?: string;
+  commute_distance_km?: number;
+  duration_minutes?: number;
+  assessment_history_id?: number;
+}): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/analytics/record-decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to record decision');
+  }
+  return response.json();
+}
+
+
 export async function getWeatherForecast(
   commuteId?: number,
   unitSystem: string = 'imperial',

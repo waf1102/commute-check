@@ -69,9 +69,26 @@ class CommuteBase(SQLModel):
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
 
+    def __init__(self, **data):
+        if "unit_system" in data and isinstance(data["unit_system"], str):
+            try:
+                data["unit_system"] = UnitSystem(data["unit_system"])
+            except ValueError:
+                pass
+        super().__init__(**data)
+
+    def __setattr__(self, name, value):
+        if name == "unit_system" and isinstance(value, str):
+            try:
+                value = UnitSystem(value)
+            except ValueError:
+                pass
+        super().__setattr__(name, value)
+
 class Commute(CommuteBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    assessment_history: List["AssessmentHistory"] = Relationship(back_populates="commute")
 
 class CommuteCreate(CommuteBase):
     pass
@@ -93,10 +110,65 @@ class UserOut(SQLModel):
 class AssessmentHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    commute_id: Optional[int] = Field(default=None, foreign_key="commute.id", index=True, nullable=True)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False, index=True)
-    commute_type: str = Field(nullable=False)
-    commute_distance_km: float = Field(nullable=False)
-    duration_minutes: float = Field(nullable=False)
+    leg_type: Optional[str] = Field(default=None, nullable=True)
+    overall_status: Optional[str] = Field(default=None, nullable=True)
+    overall_score: Optional[float] = Field(default=None, nullable=True)
+    weather_reasons: Optional[str] = Field(default=None, nullable=True)
+    weather_details: Optional[str] = Field(default=None, nullable=True)
+    commute_type: Optional[str] = Field(default=None, nullable=True)
+    commute_distance_km: Optional[float] = Field(default=0.0, nullable=True)
+    duration_minutes: Optional[float] = Field(default=0.0, nullable=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)
 
     user: Optional["User"] = Relationship(back_populates="assessment_history")
+    commute: Optional["Commute"] = Relationship(back_populates="assessment_history")
+
+    def __init__(self, **data):
+        if "reasons" in data and "weather_reasons" not in data:
+            val = data.pop("reasons")
+            if isinstance(val, (list, dict)):
+                import json
+                data["weather_reasons"] = json.dumps(val)
+            else:
+                data["weather_reasons"] = str(val) if val is not None else None
+        if "details" in data and "weather_details" not in data:
+            val = data.pop("details")
+            if isinstance(val, (list, dict)):
+                import json
+                data["weather_details"] = json.dumps(val)
+            elif hasattr(val, "model_dump"):
+                import json
+                data["weather_details"] = json.dumps(val.model_dump())
+            else:
+                data["weather_details"] = str(val) if val is not None else None
+        super().__init__(**data)
+
+    @property
+    def score(self) -> Optional[float]:
+        return self.overall_score
+
+    @property
+    def reasons(self) -> List[str]:
+        if not self.weather_reasons:
+            return []
+        try:
+            import json
+            parsed = json.loads(self.weather_reasons)
+            if isinstance(parsed, list):
+                return parsed
+            return [str(parsed)]
+        except Exception:
+            return [self.weather_reasons]
+
+    @property
+    def details(self) -> Optional[dict]:
+        if not self.weather_details:
+            return None
+        try:
+            import json
+            return json.loads(self.weather_details)
+        except Exception:
+            return None
+

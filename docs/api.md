@@ -230,7 +230,23 @@ Retrieve daily aggregated riding statistics and assessment logs within a date ra
   - `end_date` (`YYYY-MM-DD`)
 - **Response (`200 OK`)**: Array of daily statistics and decision breakdowns.
 
+### `POST /analytics/record-decision` (also `/api/analytics/record-decision`)
+Record or update whether the user rode or drove for their commute.
+
+- **Request Body**:
+  ```json
+  {
+    "commute_id": 1,
+    "decision": "riding",
+    "commute_distance_km": 15.0,
+    "duration_minutes": 30.0,
+    "assessment_history_id": 42
+  }
+  ```
+- **Response (`200 OK`)**: `DecisionRecordResponse` with updated assessment history details.
+
 ---
+
 
 ## 7. System Health
 

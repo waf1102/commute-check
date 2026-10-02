@@ -374,6 +374,7 @@ async def check_route(
     schedule_time: Optional[str] = Query(default=None),
     return_schedule_time: Optional[str] = Query(default=None),
     unit_system: UnitSystem = Query(default=UnitSystem.IMPERIAL),
+    save_history: bool = Query(default=False),
     session: Session = Depends(get_session),
     user: Optional[User] = Depends(get_current_user),
 ):
@@ -424,10 +425,25 @@ async def check_route(
         dest_outbound = None
         dest_return = None
 
-    return engine_instance.assess_route(
+    assessment_result = engine_instance.assess_route(
         origin_outbound_weather=origin_outbound,
         dest_outbound_weather=dest_outbound,
         dest_return_weather=dest_return,
         origin_return_weather=origin_return,
         commute=commute
     )
+
+    if save_history and user:
+        try:
+            record_assessment_run(
+                session=session,
+                user_id=user.id,
+                commute_id=commute.id if commute and getattr(commute, "id", None) else None,
+                assessment=assessment_result,
+                leg_type="overall"
+            )
+        except Exception as e:
+            print(f"Failed to persist on-demand assessment history: {e}")
+
+    return assessment_result
+

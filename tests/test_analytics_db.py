@@ -50,3 +50,59 @@ def test_store_and_retrieve_assessment_history(session: Session):
 
     # Test relationship
     assert retrieved_assessment.user.email == user.email
+
+def test_store_and_retrieve_extended_assessment_history(session: Session):
+    from app.models import Commute, AssessmentResult, Status, HourlyWeather
+    from app.analytics.service import record_assessment_run
+
+    user = User(email="extended@example.com", hashed_password="hashedpassword")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    commute = Commute(
+        name="Test Commute",
+        lat=37.77,
+        lon=-122.41,
+        schedule_time="08:00",
+        user_id=user.id
+    )
+    session.add(commute)
+    session.commit()
+    session.refresh(commute)
+
+    weather = HourlyWeather(
+        temperature=65.0,
+        apparent_temp=63.0,
+        wind_speed=8.0,
+        wind_gusts=12.0,
+        precip_prob=10.0,
+        weather_code=0
+    )
+    assessment = AssessmentResult(
+        status=Status.GO,
+        score=95,
+        reasons=["Clear conditions", "Comfortable temperature"],
+        recommendation="Great ride!",
+        details=weather
+    )
+
+    history = record_assessment_run(
+        session,
+        user_id=user.id,
+        commute_id=commute.id,
+        assessment=assessment,
+        leg_type="outbound"
+    )
+
+    assert history.id is not None
+    assert history.user_id == user.id
+    assert history.commute_id == commute.id
+    assert history.leg_type == "outbound"
+    assert history.overall_status == "Go"
+    assert history.overall_score == 95.0
+    assert history.score == 95.0
+    assert "Clear conditions" in history.reasons
+    assert history.details["temperature"] == 65.0
+    assert history.commute.name == "Test Commute"
+
