@@ -46,11 +46,15 @@
             } catch (e) {
                 console.error('Error fetching weather forecast:', e);
             }
+        }
+
         const focusVisualizer = () => {
             if (typeof window !== 'undefined' && window.location.hash === '#route-visualizer') {
                 const el = document.getElementById('route-visualizer');
                 if (el) {
-                    el.scrollIntoView({ behavior: 'smooth' });
+                    if (typeof el.scrollIntoView === 'function') {
+                        el.scrollIntoView({ behavior: 'smooth' });
+                    }
                     el.focus();
                 }
             }
