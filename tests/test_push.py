@@ -200,3 +200,144 @@ def test_dispatch_web_push_notification(session: Session):
         remaining_sub = session.exec(select(PushSubscription).where(PushSubscription.user_id == user.id)).first()
         assert remaining_sub is None
 
+def test_dispatch_web_push_notification_with_hazard_metadata(session: Session):
+    from app.notifications import dispatch_web_push_notification
+    import json
+    user = create_test_user(session, email="hazardpush@example.com")
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint="https://fcm.googleapis.com/fcm/send/hazard_token",
+        p256dh="dh_hazard",
+        auth="auth_hazard"
+    )
+    session.add(sub)
+    session.commit()
+
+    with patch("app.notifications.webpush") as mock_webpush:
+        res = dispatch_web_push_notification(
+            user_id=user.id,
+            title="⚠️ Caution: Summit Pass",
+            body="Commute Check: Caution for Morning Commute. ⚠️ High wind gusts (28 mph) near Summit Pass at ~08:25 AM.",
+            session=session,
+            url="/#route-visualizer",
+            has_route_hazard=True,
+            hazard_count=1,
+            primary_hazard_location="Summit Pass",
+        )
+        assert res["delivered"] == 1
+        assert res["failed"] == 0
+        assert mock_webpush.called
+
+        # Verify JSON payload has route hazard metadata
+        call_kwargs = mock_webpush.call_args[1]
+        data = json.loads(call_kwargs["data"])
+        assert data["has_route_hazard"] is True
+        assert data["hazard_count"] == 1
+        assert data["primary_hazard_location"] == "Summit Pass"
+        assert data["url"] == "/#route-visualizer"
+        assert "Summit Pass" in data["body"]
+
+def test_dispatch_web_push_notification_without_hazard_metadata(session: Session):
+    from app.notifications import dispatch_web_push_notification
+    import json
+    user = create_test_user(session, email="cleanpush@example.com")
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint="https://fcm.googleapis.com/fcm/send/clean_token",
+        p256dh="dh_clean",
+        auth="auth_clean"
+    )
+    session.add(sub)
+    session.commit()
+
+    with patch("app.notifications.webpush") as mock_webpush:
+        res = dispatch_web_push_notification(
+            user_id=user.id,
+            title="🏍️ Commute Check: Go",
+            body="Enjoy your ride!",
+            session=session,
+        )
+        assert res["delivered"] == 1
+        call_kwargs = mock_webpush.call_args[1]
+        data = json.loads(call_kwargs["data"])
+        assert data["has_route_hazard"] is False
+        assert data["hazard_count"] == 0
+        assert data["primary_hazard_location"] == ""
+
+def test_dispatch_web_push_notification_from_assessment_object(session: Session):
+    from app.notifications import dispatch_web_push_notification
+    from app.models import AssessmentResult, Status
+    import json
+    user = create_test_user(session, email="assesspush@example.com")
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint="https://fcm.googleapis.com/fcm/send/assess_token",
+        p256dh="dh_assess",
+        auth="auth_assess"
+    )
+    session.add(sub)
+    session.commit()
+
+    assessment = AssessmentResult(
+        status=Status.CAUTION,
+        score=60,
+        recommendation="Ride with caution.",
+        reasons=["High wind gusts"],
+        hazard_pinpoints=[
+            {
+                "location": "Eagle Point",
+                "hazard": "High wind gusts",
+                "value": "26 mph",
+                "time": "08:15 AM",
+            }
+        ]
+    )
+
+    with patch("app.notifications.webpush") as mock_webpush:
+        res = dispatch_web_push_notification(
+            user_id=user.id,
+            title="Commute Check: Caution",
+            body="Alert body",
+            session=session,
+            assessment=assessment,
+        )
+        assert res["delivered"] == 1
+        call_kwargs = mock_webpush.call_args[1]
+        data = json.loads(call_kwargs["data"])
+        assert data["has_route_hazard"] is True
+        assert data["hazard_count"] == 1
+        assert data["primary_hazard_location"] == "Eagle Point"
+
+@patch("app.notifications.webpush")
+def test_send_test_push_with_hazard_metadata_api(mock_webpush, client: TestClient, auth_headers: dict):
+    # Subscribe first
+    sub_res = client.post("/push/subscribe", json={
+        "endpoint": "https://fcm.googleapis.com/fcm/send/api_hazard_token",
+        "keys": {"p256dh": "dh_api", "auth": "auth_api"}
+    }, headers=auth_headers)
+    assert sub_res.status_code == 200
+
+    # Post /push/test with hazard metadata
+    res = client.post("/push/test", json={
+        "title": "Hazard Commute Test",
+        "body": "Commute Check: Caution for Morning Commute. ⚠️ High wind gusts (28 mph) near Summit Pass at ~08:25 AM.",
+        "url": "/#route-visualizer",
+        "has_route_hazard": True,
+        "hazard_count": 2,
+        "primary_hazard_location": "Summit Pass"
+    }, headers=auth_headers)
+
+    assert res.status_code == 200
+    assert res.json()["delivered"] == 1
+    assert mock_webpush.called
+
+    import json
+    call_kwargs = mock_webpush.call_args[1]
+    data = json.loads(call_kwargs["data"])
+    assert data["has_route_hazard"] is True
+    assert data["hazard_count"] == 2
+    assert data["primary_hazard_location"] == "Summit Pass"
+    assert data["url"] == "/#route-visualizer"
+    assert "Summit Pass" in data["body"]
+
+

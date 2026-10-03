@@ -69,11 +69,17 @@ self.addEventListener('push', (event: PushEvent) => {
 		}
 	}
 	const title = data.title || 'Commute Check Update';
+	const urlToOpen = data.url || (data.has_route_hazard ? '/#route-visualizer' : '/#route-visualizer');
 	const options: NotificationOptions = {
 		body: data.body || 'Check your commute weather decision.',
 		icon: '/icons/icon-192.png',
 		badge: '/icons/icon-192.png',
-		data: { url: data.url || '/' }
+		data: {
+			url: urlToOpen,
+			has_route_hazard: Boolean(data.has_route_hazard),
+			hazard_count: data.hazard_count ?? 0,
+			primary_hazard_location: data.primary_hazard_location ?? ''
+		}
 	};
 	event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -81,14 +87,26 @@ self.addEventListener('push', (event: PushEvent) => {
 // Notification click listener
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
 	event.notification.close();
-	const urlToOpen = event.notification.data?.url || '/';
+	let urlToOpen = event.notification.data?.url || '/#route-visualizer';
+	if (urlToOpen === '/dashboard' || urlToOpen === '/') {
+		urlToOpen = '/#route-visualizer';
+	}
 	const targetUrl = new URL(urlToOpen, self.location.origin).href;
 
 	event.waitUntil(
 		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
 			for (const client of clientList) {
-				if (client.url === targetUrl && 'focus' in client) {
-					return client.focus();
+				const clientUrl = new URL(client.url);
+				if (
+					clientUrl.origin === self.location.origin &&
+					(clientUrl.pathname === '/' || clientUrl.pathname === '/dashboard')
+				) {
+					if ('navigate' in client && typeof (client as any).navigate === 'function') {
+						(client as any).navigate(targetUrl);
+					}
+					if ('focus' in client) {
+						return client.focus();
+					}
 				}
 			}
 			if (self.clients.openWindow) {

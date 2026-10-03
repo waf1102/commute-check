@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 import json
@@ -11,6 +12,7 @@ from app.push.schemas import (
     PushSubscribeRequest,
     PushUnsubscribeRequest,
     VapidPublicKeyResponse,
+    TestPushRequest,
 )
 from app.push.vapid import get_or_create_vapid_keys
 from app.security import get_current_user
@@ -70,6 +72,7 @@ def unsubscribe(
 
 @router.post("/test")
 def send_test_push(
+    req: Optional[TestPushRequest] = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -80,11 +83,21 @@ def send_test_push(
     if not subs:
         raise HTTPException(status_code=400, detail="No push subscriptions found for user")
 
+    title = req.title if (req and req.title) else "Commute Check Test"
+    body = req.body if (req and req.body) else "Web Push Notifications are working perfectly! 🏍️"
+    url = req.url if (req and req.url) else "/#route-visualizer"
+    has_route_hazard = req.has_route_hazard if (req and req.has_route_hazard is not None) else False
+    hazard_count = req.hazard_count if (req and req.hazard_count is not None) else 0
+    primary_hazard_location = req.primary_hazard_location if (req and req.primary_hazard_location is not None) else ""
+
     res = dispatch_web_push_notification(
         user_id=current_user.id,
-        title="Commute Check Test",
-        body="Web Push Notifications are working perfectly! 🏍️",
+        title=title,
+        body=body,
         session=session,
-        url="/dashboard"
+        url=url,
+        has_route_hazard=has_route_hazard,
+        hazard_count=hazard_count,
+        primary_hazard_location=primary_hazard_location,
     )
     return {"status": "sent", "delivered": res["delivered"], "failed": res["failed"]}

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Any, Dict, Union
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
@@ -28,12 +28,27 @@ class HourlyWeather(BaseModel):
     precip_prob: float
     weather_code: int
 
+class HazardPinpoint(BaseModel):
+    location: Optional[str] = None
+    location_name: Optional[str] = None
+    hazard: Optional[str] = None
+    hazard_type: Optional[str] = None
+    parameter: Optional[str] = None
+    value: Optional[str] = None
+    time: Optional[str] = None
+    encounter_time: Optional[str] = None
+    severity: Optional[str] = None
+    description: Optional[str] = None
+
 class AssessmentResult(BaseModel):
     status: Status
     score: int
     reasons: List[str]
     recommendation: str
     details: Optional[HourlyWeather] = None
+    hazard_pinpoints: Optional[List[Any]] = None
+    waypoint_risks: Optional[List[Any]] = None
+    commute_name: Optional[str] = None
 
 class LegAssessment(BaseModel):
     leg_type: str  # "outbound" or "return"
@@ -43,6 +58,9 @@ class LegAssessment(BaseModel):
     score: int
     reasons: List[str]
     weather: HourlyWeather
+    hazard_pinpoints: Optional[List[Any]] = None
+    waypoint_risks: Optional[List[Any]] = None
+    commute_name: Optional[str] = None
 
 class RouteAssessmentResult(BaseModel):
     overall_status: Status
@@ -50,6 +68,9 @@ class RouteAssessmentResult(BaseModel):
     outbound_leg: LegAssessment
     return_leg: Optional[LegAssessment] = None
     recommendation: str
+    hazard_pinpoints: Optional[List[Any]] = None
+    commute_name: Optional[str] = None
+
 
 
 DAY_NAME_MAP = {

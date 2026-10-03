@@ -382,6 +382,95 @@ async def test_run_commute_check_evaluates_outbound_and_return_legs():
 
 
 @pytest.mark.asyncio
+async def test_run_commute_check_triggers_enhanced_hazard_notification():
+    from app.models import LegAssessment, RouteAssessmentResult
+    commute = Commute(
+        id=9996,
+        user_id=42,
+        name="Morning Commute",
+        lat=37.7749,
+        lon=-122.4194,
+        dest_name="Summit Pass Office",
+        dest_lat=37.3861,
+        dest_lon=-122.0839,
+        schedule_time="08:00",
+        return_schedule_time="17:00",
+        webhook_url="https://webhook.example.com/alerts",
+        unit_system=UnitSystem.IMPERIAL,
+    )
+
+    hazard_pinpoint = {
+        "location": "Summit Pass",
+        "hazard": "High wind gusts",
+        "value": "28 mph",
+        "time": "08:25 AM",
+    }
+
+    mock_outbound_leg = LegAssessment(
+        leg_type="outbound",
+        location_name="Morning Commute -> Summit Pass Office",
+        schedule_time="08:00",
+        status=Status.CAUTION,
+        score=60,
+        reasons=["High wind gusts"],
+        weather=HourlyWeather(
+            temperature=65.0,
+            apparent_temp=65.0,
+            wind_speed=20.0,
+            wind_gusts=28.0,
+            precip_prob=10.0,
+            weather_code=0,
+        ),
+        hazard_pinpoints=[hazard_pinpoint],
+    )
+
+    mock_route_result = RouteAssessmentResult(
+        overall_status=Status.CAUTION,
+        overall_score=60,
+        outbound_leg=mock_outbound_leg,
+        return_leg=None,
+        recommendation="Ride with caution.",
+        hazard_pinpoints=[hazard_pinpoint],
+    )
+
+    with patch("app.main.Session") as mock_session_cls, \
+         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_fetch, \
+         patch("app.main.engine_instance.assess_route") as mock_assess_route, \
+         patch("app.main.notification_service_instance.send_notification", new_callable=AsyncMock) as mock_send_notif, \
+         patch("app.main.dispatch_web_push_notification") as mock_push:
+
+        mock_session = MagicMock()
+        mock_session.get.return_value = commute
+        mock_session_cls.return_value.__enter__.return_value = mock_session
+        mock_fetch.return_value = ({}, {})
+        mock_assess_route.return_value = mock_route_result
+
+        result = await run_commute_check(9996, leg_type="outbound")
+        assert result is not None
+
+        # Verify enhanced hazard notification body passed to Apprise
+        assert mock_send_notif.called
+        apprise_args = mock_send_notif.call_args[0]
+        assert apprise_args[1].hazard_pinpoints == [hazard_pinpoint]
+
+        # Verify enhanced hazard notification passed to Web Push
+        assert mock_push.called
+        push_user_id = mock_push.call_args[0][0]
+        push_title = mock_push.call_args[0][1]
+        push_body = mock_push.call_args[0][2]
+        push_kwargs = mock_push.call_args[1]
+
+        assert push_user_id == 42
+        assert "Caution" in push_title
+        assert "Commute Check: Caution for Morning Commute. ⚠️ High wind gusts (28 mph) near Summit Pass at ~08:25 AM." in push_body
+        assert push_kwargs["has_route_hazard"] is True
+        assert push_kwargs["hazard_count"] == 1
+        assert push_kwargs["primary_hazard_location"] == "Summit Pass"
+        assert push_kwargs["url"] == "/#route-visualizer"
+
+
+
+@pytest.mark.asyncio
 async def test_run_commute_check_error_handling():
     # 1. Non-existent commute
     with patch("app.main.Session") as mock_session_cls:

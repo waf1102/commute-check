@@ -46,6 +46,18 @@
             } catch (e) {
                 console.error('Error fetching weather forecast:', e);
             }
+        const focusVisualizer = () => {
+            if (typeof window !== 'undefined' && window.location.hash === '#route-visualizer') {
+                const el = document.getElementById('route-visualizer');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth' });
+                    el.focus();
+                }
+            }
+        };
+        focusVisualizer();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('hashchange', focusVisualizer);
         }
     });
 
@@ -185,7 +197,7 @@
         </div>
     {:else if selectedCommute}
         <div class="dashboard-grid">
-            <div class="commute-panel" data-testid="route-assessment-card">
+            <div class="commute-panel" id="route-visualizer" tabindex="-1" data-testid="route-assessment-card">
                 <h2>{selectedCommute.name} <span class="time-badge">{selectedCommute.schedule_time}</span></h2>
                 
                 {#if selectedCommute.error}
