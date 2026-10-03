@@ -44,12 +44,23 @@ class LegAssessment(BaseModel):
     reasons: List[str]
     weather: HourlyWeather
 
+class HazardPinpoint(BaseModel):
+    lat: float
+    lon: float
+    location_name: Optional[str] = None
+    title: Optional[str] = None
+    weather_conditions: Optional[str] = None
+    weather: Optional[HourlyWeather] = None
+    risk_factors: List[str] = []
+    severity: Optional[str] = None
+
 class RouteAssessmentResult(BaseModel):
     overall_status: Status
     overall_score: int
     outbound_leg: LegAssessment
     return_leg: Optional[LegAssessment] = None
     recommendation: str
+    hazard_pinpoints: Optional[List[HazardPinpoint]] = []
 
 
 DAY_NAME_MAP = {
@@ -125,6 +136,17 @@ class CommuteBase(SQLModel):
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
+    waypoints: Optional[str] = Field(default=None, nullable=True)
+
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def validate_waypoints_field(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, (list, dict)):
+            import json
+            return json.dumps(v)
+        return str(v)
 
     @field_validator("days_of_week", mode="before")
     @classmethod

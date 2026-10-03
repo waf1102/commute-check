@@ -1,5 +1,5 @@
 from typing import Optional, List, Tuple
-from .models import Status, HourlyWeather, AssessmentResult, Commute, LegAssessment, RouteAssessmentResult
+from .models import Status, HourlyWeather, AssessmentResult, Commute, LegAssessment, RouteAssessmentResult, HazardPinpoint
 
 STATUS_SEVERITY = {
     Status.NO_GO: 3,
@@ -194,10 +194,41 @@ class AssessmentEngine:
         elif overall_status == Status.NO_GO:
             recommendation = "Riding not recommended."
 
+        # 5. Localized hazard pinpoints
+        hazard_pinpoints: List[HazardPinpoint] = []
+        if outbound_leg.status in (Status.CAUTION, Status.NO_GO) and outbound_leg.weather and commute:
+            hazard_pinpoints.append(
+                HazardPinpoint(
+                    lat=commute.lat,
+                    lon=commute.lon,
+                    location_name=f"{origin_name} (Outbound)",
+                    title=f"{origin_name} Outbound Hazard",
+                    weather_conditions=f"Temp: {outbound_leg.weather.temperature}°, Wind: {outbound_leg.weather.wind_speed}, Rain Chance: {outbound_leg.weather.precip_prob}%",
+                    weather=outbound_leg.weather,
+                    risk_factors=outbound_leg.reasons,
+                    severity=outbound_leg.status.value if hasattr(outbound_leg.status, "value") else str(outbound_leg.status)
+                )
+            )
+
+        if return_leg and return_leg.status in (Status.CAUTION, Status.NO_GO) and return_leg.weather and commute and commute.dest_lat is not None and commute.dest_lon is not None:
+            hazard_pinpoints.append(
+                HazardPinpoint(
+                    lat=commute.dest_lat,
+                    lon=commute.dest_lon,
+                    location_name=f"{dest_name or 'Destination'} (Return)",
+                    title=f"{dest_name or 'Destination'} Return Hazard",
+                    weather_conditions=f"Temp: {return_leg.weather.temperature}°, Wind: {return_leg.weather.wind_speed}, Rain Chance: {return_leg.weather.precip_prob}%",
+                    weather=return_leg.weather,
+                    risk_factors=return_leg.reasons,
+                    severity=return_leg.status.value if hasattr(return_leg.status, "value") else str(return_leg.status)
+                )
+            )
+
         return RouteAssessmentResult(
             overall_status=overall_status,
             overall_score=overall_score,
             outbound_leg=outbound_leg,
             return_leg=return_leg,
             recommendation=recommendation,
+            hazard_pinpoints=hazard_pinpoints,
         )

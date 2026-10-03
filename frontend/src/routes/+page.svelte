@@ -8,6 +8,7 @@
     import OfflineBanner from '$lib/components/OfflineBanner.svelte';
     import PwaInstallPrompt from '$lib/components/PwaInstallPrompt.svelte';
     import PushNotificationToggle from '$lib/components/PushNotificationToggle.svelte';
+    import RouteMap from '$lib/components/RouteMap.svelte';
 
     let { data }: { data: PageData } = $props();
 
@@ -21,6 +22,21 @@
             ? (activeAssessments[selectedIndex] ?? activeAssessments[0])
             : null
     );
+
+    let parsedCommuteWaypoints = $derived.by(() => {
+        if (!selectedCommute?.waypoints) return [];
+        if (Array.isArray(selectedCommute.waypoints)) {
+            return selectedCommute.waypoints;
+        }
+        if (typeof selectedCommute.waypoints === 'string') {
+            try {
+                return JSON.parse(selectedCommute.waypoints);
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    });
 
     let dest_name = $state('');
     let dest_lat = $state<number | null>(null);
@@ -232,6 +248,27 @@
                 {/if}
             </div>
         </div>
+
+        <section class="card route-map-section" data-testid="route-map-section">
+            <h3>Route Map Visualizer</h3>
+            <RouteMap
+                origin={{
+                    name: selectedCommute.name || 'Origin',
+                    lat: selectedCommute.lat,
+                    lon: selectedCommute.lon
+                }}
+                destination={
+                    (dest_lat !== null && dest_lon !== null)
+                        ? { name: dest_name || 'Destination', lat: dest_lat, lon: dest_lon }
+                        : (selectedCommute.dest_lat !== undefined && selectedCommute.dest_lat !== null && selectedCommute.dest_lon !== undefined && selectedCommute.dest_lon !== null)
+                            ? { name: selectedCommute.dest_name || 'Destination', lat: selectedCommute.dest_lat, lon: selectedCommute.dest_lon }
+                            : null
+                }
+                waypoints={parsedCommuteWaypoints}
+                assessment={selectedCommute.assessment}
+                hazard_pinpoints={selectedCommute.assessment?.hazard_pinpoints}
+            />
+        </section>
     {/if}
 
     {#if forecast && forecast.hourly && forecast.hourly.length > 0}
@@ -463,5 +500,25 @@
     .weather-visualizations h2 {
         font-size: 1.5rem;
         margin-bottom: 15px;
+    }
+
+    .route-map-section {
+        margin-top: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .route-map-section h3 {
+        margin: 0;
+        font-size: 1.15rem;
+        color: #1f2937;
+    }
+
+    @media (max-width: 640px) {
+        .route-map-section {
+            margin-top: 16px;
+            gap: 8px;
+        }
     }
 </style>

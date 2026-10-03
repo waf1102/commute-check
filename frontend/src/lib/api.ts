@@ -30,12 +30,33 @@ export interface LegAssessment {
   weather?: HourlyForecastItem;
 }
 
+export interface Waypoint {
+  id?: string | number;
+  name: string;
+  lat: number;
+  lon: number;
+  status?: string;
+}
+
+export interface HazardPinpoint {
+  lat: number;
+  lon: number;
+  location_name?: string;
+  title?: string;
+  weather_conditions?: string;
+  weather?: HourlyForecastItem | any;
+  risk_factors?: string[];
+  reasons?: string[];
+  severity?: string;
+}
+
 export interface RouteAssessmentResult {
   overall_status: string;
   overall_score: number;
   outbound_leg: LegAssessment;
   return_leg?: LegAssessment;
   recommendation: string;
+  hazard_pinpoints?: HazardPinpoint[];
 }
 
 export interface ForecastResponse {
