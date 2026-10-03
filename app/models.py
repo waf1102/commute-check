@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any, Union, Dict
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
@@ -28,12 +28,121 @@ class HourlyWeather(BaseModel):
     precip_prob: float
     weather_code: int
 
+
+class HazardPinpoint(BaseModel):
+    lat: float
+    lon: float
+    coordinates: Optional[Tuple[float, float]] = None
+    estimated_time: str
+    parameter: str
+    parameter_breached: Optional[str] = None
+    value: float
+    threshold: float
+    warning_message: str
+    severity: Status = Status.CAUTION
+
+    def __init__(self, **data):
+        if "coordinates" in data and data["coordinates"]:
+            c = data["coordinates"]
+            if "lat" not in data:
+                data["lat"] = float(c[0])
+            if "lon" not in data:
+                data["lon"] = float(c[1])
+        elif "lat" in data and "lon" in data:
+            data["coordinates"] = (float(data["lat"]), float(data["lon"]))
+
+        if "parameter" in data and "parameter_breached" not in data:
+            data["parameter_breached"] = data["parameter"]
+        elif "parameter_breached" in data and "parameter" not in data:
+            data["parameter"] = data["parameter_breached"]
+
+        super().__init__(**data)
+
+
+class WaypointEvaluation(BaseModel):
+    index: int = 0
+    name: Optional[str] = None
+    lat: float
+    lon: float
+    coordinates: Optional[Tuple[float, float]] = None
+    estimated_arrival_time: str
+    eta: Optional[str] = None
+    weather: HourlyWeather
+    status: Status
+    score: int
+    reasons: List[str] = []
+    hazard_pinpoints: List[HazardPinpoint] = []
+
+    def __init__(self, **data):
+        if "coordinates" in data and data["coordinates"]:
+            c = data["coordinates"]
+            if "lat" not in data:
+                data["lat"] = float(c[0])
+            if "lon" not in data:
+                data["lon"] = float(c[1])
+        elif "lat" in data and "lon" in data:
+            data["coordinates"] = (float(data["lat"]), float(data["lon"]))
+
+        if "estimated_arrival_time" in data and "eta" not in data:
+            data["eta"] = data["estimated_arrival_time"]
+        elif "eta" in data and "estimated_arrival_time" not in data:
+            data["estimated_arrival_time"] = data["eta"]
+
+        super().__init__(**data)
+
+
+class RouteSegment(BaseModel):
+    segment_index: int = 0
+    start_lat: float
+    start_lon: float
+    start_coord: Optional[Tuple[float, float]] = None
+    end_lat: float
+    end_lon: float
+    end_coord: Optional[Tuple[float, float]] = None
+    start_name: Optional[str] = None
+    end_name: Optional[str] = None
+    distance_km: float = 0.0
+    duration_minutes: float = 0.0
+    start_time: str = ""
+    end_time: str = ""
+    status: Status = Status.GO
+    score: int = 100
+    reasons: List[str] = []
+    hazard_pinpoints: List[HazardPinpoint] = []
+    weather: Optional[HourlyWeather] = None
+
+    def __init__(self, **data):
+        if "start_coord" in data and data["start_coord"]:
+            c = data["start_coord"]
+            if "start_lat" not in data:
+                data["start_lat"] = float(c[0])
+            if "start_lon" not in data:
+                data["start_lon"] = float(c[1])
+        elif "start_lat" in data and "start_lon" in data:
+            data["start_coord"] = (float(data["start_lat"]), float(data["start_lon"]))
+
+        if "end_coord" in data and data["end_coord"]:
+            c = data["end_coord"]
+            if "end_lat" not in data:
+                data["end_lat"] = float(c[0])
+            if "end_lon" not in data:
+                data["end_lon"] = float(c[1])
+        elif "end_lat" in data and "end_lon" in data:
+            data["end_coord"] = (float(data["end_lat"]), float(data["end_lon"]))
+
+        super().__init__(**data)
+
+
 class AssessmentResult(BaseModel):
     status: Status
     score: int
     reasons: List[str]
     recommendation: str
     details: Optional[HourlyWeather] = None
+    segments: List[RouteSegment] = []
+    waypoint_evaluations: List[WaypointEvaluation] = []
+    hazard_pinpoints: List[HazardPinpoint] = []
+
 
 class LegAssessment(BaseModel):
     leg_type: str  # "outbound" or "return"
@@ -43,6 +152,10 @@ class LegAssessment(BaseModel):
     score: int
     reasons: List[str]
     weather: HourlyWeather
+    segments: List[RouteSegment] = []
+    waypoint_evaluations: List[WaypointEvaluation] = []
+    hazard_pinpoints: List[HazardPinpoint] = []
+
 
 class RouteAssessmentResult(BaseModel):
     overall_status: Status
@@ -50,6 +163,26 @@ class RouteAssessmentResult(BaseModel):
     outbound_leg: LegAssessment
     return_leg: Optional[LegAssessment] = None
     recommendation: str
+    segments: List[RouteSegment] = []
+    waypoint_evaluations: List[WaypointEvaluation] = []
+    hazard_pinpoints: List[HazardPinpoint] = []
+
+
+class AssessmentRequest(BaseModel):
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    dest_lat: Optional[float] = None
+    dest_lon: Optional[float] = None
+    dest_name: Optional[str] = None
+    departure_time: Optional[str] = "08:00"
+    schedule_time: Optional[str] = None
+    waypoints: Optional[List[Any]] = None
+    min_temp_caution: float = 45.0
+    min_temp_no_go: float = 38.0
+    max_wind_caution: float = 15.0
+    max_wind_no_go: float = 25.0
+    rain_threshold: float = 30.0
+    unit_system: UnitSystem = UnitSystem.IMPERIAL
 
 
 DAY_NAME_MAP = {
@@ -165,7 +298,7 @@ class Commute(CommuteBase, table=True):
     assessment_history: List["AssessmentHistory"] = Relationship(back_populates="commute")
 
 class CommuteCreate(CommuteBase):
-    pass
+    waypoints: Optional[List[Any]] = None
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

@@ -1,6 +1,6 @@
 import httpx
 import asyncio
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Any, Union, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from cachetools import TTLCache
 from .models import HourlyWeather, UnitSystem
@@ -9,10 +9,22 @@ def parse_hourly_at_time(data: dict, target_time: Optional[str] = None) -> Hourl
     hourly = data.get("hourly", {})
     idx = 0
     if target_time and "time" in hourly and hourly["time"]:
+        time_list = hourly["time"]
         try:
-            hour = int(target_time.split(":")[0])
-            if 0 <= hour < len(hourly["time"]):
-                idx = hour
+            if "T" in target_time:
+                prefix = target_time[:13]
+                matched = [i for i, t in enumerate(time_list) if str(t).startswith(prefix)]
+                if matched:
+                    idx = matched[0]
+                else:
+                    time_part = target_time.split("T")[1]
+                    hour = int(time_part.split(":")[0])
+                    if 0 <= hour < len(time_list):
+                        idx = hour
+            else:
+                hour = int(target_time.split(":")[0])
+                if 0 <= hour < len(time_list):
+                    idx = hour
         except Exception:
             idx = 0
     
@@ -107,10 +119,59 @@ class WeatherClient:
             self._cache[cache_key] = result
             return result
 
+    async def fetch_weather_batch(
+        self,
+        coordinates: List[Tuple[float, float]],
+        unit_system: UnitSystem = UnitSystem.IMPERIAL,
+    ) -> List[dict]:
+        """
+        Concurrent batch forecast retrieval across multiple route coordinates.
+        Leverages the TTL cache to avoid redundant calls and deduplicates identical coordinates.
+        """
+        if not coordinates:
+            return []
+
+        norm_coords: List[Tuple[float, float]] = []
+        for c in coordinates:
+            if isinstance(c, (list, tuple)):
+                norm_coords.append((float(c[0]), float(c[1])))
+            elif isinstance(c, dict):
+                norm_coords.append((float(c["lat"]), float(c["lon"])))
+            elif hasattr(c, "lat") and hasattr(c, "lon"):
+                norm_coords.append((float(c.lat), float(c.lon)))
+            else:
+                raise ValueError(f"Invalid coordinate format: {c}")
+
+        unique_coords = list(dict.fromkeys(norm_coords))
+        results = await asyncio.gather(
+            *(self.fetch_weather(lat, lon, unit_system=unit_system) for lat, lon in unique_coords)
+        )
+        coord_map = dict(zip(unique_coords, results))
+        return [coord_map[coord] for coord in norm_coords]
+
+    async def get_hourly_weather_batch(
+        self,
+        coordinates: List[Tuple[float, float]],
+        target_times: Optional[List[Optional[str]]] = None,
+        unit_system: UnitSystem = UnitSystem.IMPERIAL,
+    ) -> List[HourlyWeather]:
+        forecasts = await self.fetch_weather_batch(coordinates, unit_system=unit_system)
+        weathers: List[HourlyWeather] = []
+        for i, data in enumerate(forecasts):
+            t_time = target_times[i] if target_times and i < len(target_times) else None
+            weathers.append(parse_hourly_at_time(data, target_time=t_time))
+        return weathers
+
 _default_weather_client = WeatherClient()
 
 async def fetch_weather(lat: float, lon: float, unit_system: UnitSystem = UnitSystem.IMPERIAL) -> dict:
     return await _default_weather_client.fetch_weather(lat, lon, unit_system)
+
+async def fetch_weather_batch(
+    coordinates: List[Tuple[float, float]],
+    unit_system: UnitSystem = UnitSystem.IMPERIAL,
+) -> List[dict]:
+    return await _default_weather_client.fetch_weather_batch(coordinates, unit_system=unit_system)
 
 async def fetch_route_weather(
     origin_lat: float,

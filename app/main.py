@@ -2,7 +2,7 @@ from app import client as app_client
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, Tuple, Any, AsyncGenerator
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from contextlib import asynccontextmanager
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-from .models import Commute, CommuteCreate, AssessmentResult, RouteAssessmentResult, UnitSystem, User
+from .models import Commute, CommuteCreate, AssessmentResult, RouteAssessmentResult, UnitSystem, User, AssessmentRequest
 from .engine import AssessmentEngine
 from .client import WeatherClient
 from .notifications import NotificationService
@@ -266,6 +266,91 @@ def delete_config(commute_id: int, session: Session = Depends(get_session), user
 
     return {"status": "deleted"}
 
+@app.post("/assess", response_model=AssessmentResult)
+@app.post("/api/assess", response_model=AssessmentResult)
+async def assess_weather_post(request: AssessmentRequest):
+    """
+    Manually assess weather via POST for given coordinates, waypoints, and thresholds.
+    """
+    lat = request.lat
+    lon = request.lon
+    if lat is None or lon is None:
+        raise HTTPException(status_code=400, detail="Latitude and longitude are required")
+
+    waypoints_raw = request.waypoints
+    unit_system = request.unit_system
+    departure_time = request.departure_time or request.schedule_time or "08:00"
+
+    thresholds = Commute(
+        lat=lat,
+        lon=lon,
+        dest_name=request.dest_name,
+        dest_lat=request.dest_lat,
+        dest_lon=request.dest_lon,
+        schedule_time=departure_time,
+        min_temp_caution=request.min_temp_caution,
+        min_temp_no_go=request.min_temp_no_go,
+        max_wind_caution=request.max_wind_caution,
+        max_wind_no_go=request.max_wind_no_go,
+        rain_threshold=request.rain_threshold,
+        unit_system=unit_system,
+    )
+
+    if waypoints_raw or (thresholds.dest_lat is not None and thresholds.dest_lon is not None):
+        coords: List[Tuple[float, float]] = [(lat, lon)]
+        waypoint_names: List[str] = [thresholds.name or "Origin"]
+
+        if waypoints_raw:
+            for i, w in enumerate(waypoints_raw):
+                if isinstance(w, (list, tuple)):
+                    coords.append((float(w[0]), float(w[1])))
+                    waypoint_names.append(f"Waypoint {i+1}")
+                elif isinstance(w, dict):
+                    coords.append((float(w["lat"]), float(w["lon"])))
+                    waypoint_names.append(w.get("name", f"Waypoint {i+1}"))
+                elif hasattr(w, "lat") and hasattr(w, "lon"):
+                    coords.append((float(w.lat), float(w.lon)))
+                    waypoint_names.append(getattr(w, "name", f"Waypoint {i+1}"))
+
+        if thresholds.dest_lat is not None and thresholds.dest_lon is not None:
+            coords.append((thresholds.dest_lat, thresholds.dest_lon))
+            waypoint_names.append(thresholds.dest_name or "Destination")
+
+        try:
+            forecasts = await client_instance.fetch_weather_batch(coords, unit_system=unit_system)
+        except Exception as e:
+            print(f"Weather API error in batch fetch: {e}")
+            raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
+
+        route_res = engine_instance.assess_timed_route(
+            coordinates=coords,
+            departure_time=departure_time,
+            weather_data=forecasts,
+            commute=thresholds,
+            waypoint_names=waypoint_names,
+        )
+
+        return AssessmentResult(
+            status=route_res.overall_status,
+            score=route_res.overall_score,
+            reasons=route_res.outbound_leg.reasons,
+            recommendation=route_res.recommendation,
+            details=route_res.outbound_leg.weather,
+            segments=route_res.segments,
+            waypoint_evaluations=route_res.waypoint_evaluations,
+            hazard_pinpoints=route_res.hazard_pinpoints,
+        )
+    else:
+        try:
+            weather = await client_instance.get_hourly_weather(lat, lon, unit_system)
+        except Exception as e:
+            print(f"Weather API error: {e}")
+            raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
+
+        assessment = engine_instance.assess(weather, thresholds)
+        return assessment
+
+
 @app.get("/assess", response_model=AssessmentResult)
 async def assess_weather(
     lat: float, 
@@ -404,34 +489,68 @@ async def check_route(
     if not commute:
         raise HTTPException(status_code=404, detail="Commute configuration not found")
 
-    try:
-        origin_raw, dest_raw = await app_client.fetch_route_weather(
-            commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
+    waypoints_raw = getattr(commute_data, "waypoints", None) if commute_data else None
+
+    if waypoints_raw:
+        coords: List[Tuple[float, float]] = [(commute.lat, commute.lon)]
+        wp_names: List[str] = [commute.name or "Origin"]
+        for i, w in enumerate(waypoints_raw):
+            if isinstance(w, (list, tuple)):
+                coords.append((float(w[0]), float(w[1])))
+                wp_names.append(f"Waypoint {i+1}")
+            elif isinstance(w, dict):
+                coords.append((float(w["lat"]), float(w["lon"])))
+                wp_names.append(w.get("name", f"Waypoint {i+1}"))
+            elif hasattr(w, "lat") and hasattr(w, "lon"):
+                coords.append((float(w.lat), float(w.lon)))
+                wp_names.append(getattr(w, "name", f"Waypoint {i+1}"))
+
+        if commute.dest_lat is not None and commute.dest_lon is not None:
+            coords.append((commute.dest_lat, commute.dest_lon))
+            wp_names.append(commute.dest_name or "Destination")
+
+        try:
+            forecasts = await client_instance.fetch_weather_batch(coords, unit_system=commute.unit_system)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail="Weather service unavailable")
+
+        outbound_time = commute.schedule_time or "08:00"
+        assessment_result = engine_instance.assess_timed_route(
+            coordinates=coords,
+            departure_time=outbound_time,
+            weather_data=forecasts,
+            commute=commute,
+            waypoint_names=wp_names,
         )
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Weather service unavailable")
-
-    outbound_time = commute.schedule_time or "08:00"
-    return_time = commute.return_schedule_time or "17:00"
-
-    from .client import parse_hourly_at_time
-    origin_outbound = parse_hourly_at_time(origin_raw, outbound_time)
-    origin_return = parse_hourly_at_time(origin_raw, return_time) if return_time else None
-
-    if dest_raw:
-        dest_outbound = parse_hourly_at_time(dest_raw, outbound_time)
-        dest_return = parse_hourly_at_time(dest_raw, return_time) if return_time else None
     else:
-        dest_outbound = None
-        dest_return = None
+        try:
+            origin_raw, dest_raw = await app_client.fetch_route_weather(
+                commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
+            )
+        except Exception as e:
+            raise HTTPException(status_code=503, detail="Weather service unavailable")
 
-    assessment_result = engine_instance.assess_route(
-        origin_outbound_weather=origin_outbound,
-        dest_outbound_weather=dest_outbound,
-        dest_return_weather=dest_return,
-        origin_return_weather=origin_return,
-        commute=commute
-    )
+        outbound_time = commute.schedule_time or "08:00"
+        return_time = commute.return_schedule_time or "17:00"
+
+        from .client import parse_hourly_at_time
+        origin_outbound = parse_hourly_at_time(origin_raw, outbound_time)
+        origin_return = parse_hourly_at_time(origin_raw, return_time) if return_time else None
+
+        if dest_raw:
+            dest_outbound = parse_hourly_at_time(dest_raw, outbound_time)
+            dest_return = parse_hourly_at_time(dest_raw, return_time) if return_time else None
+        else:
+            dest_outbound = None
+            dest_return = None
+
+        assessment_result = engine_instance.assess_route(
+            origin_outbound_weather=origin_outbound,
+            dest_outbound_weather=dest_outbound,
+            dest_return_weather=dest_return,
+            origin_return_weather=origin_return,
+            commute=commute
+        )
 
     if save_history and user:
         try:
