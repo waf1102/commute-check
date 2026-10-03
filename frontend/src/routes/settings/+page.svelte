@@ -3,6 +3,7 @@
     import { getCommuteConfig, saveCommuteConfig, deleteCommuteConfig, testWebhook } from '$lib/api';
     import { jwt_token } from '$lib/auth';
     import { get } from 'svelte/store';
+    import DayOfWeekSelector from '$lib/components/DayOfWeekSelector.svelte';
 
     interface CommuteSettings {
         id?: number;
@@ -97,6 +98,11 @@
 
     async function saveSettings(e: Event) {
         e.preventDefault();
+        if (!settings.days_of_week || !settings.days_of_week.trim()) {
+            testStatus = '❌ Please select at least one day of the week';
+            setTimeout(() => testStatus = '', 5000);
+            return;
+        }
         try {
             const payload = {
                 ...settings,
@@ -358,8 +364,9 @@
                 <input type="time" id="time" bind:value={settings.schedule_time} required>
             </div>
             <div class="field">
-                <label for="days">Days of Week (cron format: mon-fri, mon,wed,fri, etc.)</label>
-                <input type="text" id="days" bind:value={settings.days_of_week} placeholder="mon-fri" required>
+                <label for="days">Days of Week Schedule</label>
+                <DayOfWeekSelector id="days" bind:value={settings.days_of_week} disabled={!isAuthenticated} />
+                <input type="hidden" name="days_of_week" bind:value={settings.days_of_week}>
             </div>
 
             <div class="actions">

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List, Optional
 from sqlmodel import Field, SQLModel, Relationship
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, func
 
@@ -51,6 +51,63 @@ class RouteAssessmentResult(BaseModel):
     return_leg: Optional[LegAssessment] = None
     recommendation: str
 
+
+DAY_NAME_MAP = {
+    "monday": "mon",
+    "tuesday": "tue",
+    "wednesday": "wed",
+    "thursday": "thu",
+    "friday": "fri",
+    "saturday": "sat",
+    "sunday": "sun",
+}
+VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+VALID_NUMS = {"0", "1", "2", "3", "4", "5", "6"}
+
+
+def validate_and_normalize_days_of_week(val: str) -> str:
+    if not isinstance(val, str):
+        raise ValueError("days_of_week must be a string")
+    val = val.strip()
+    if not val:
+        raise ValueError("days_of_week cannot be empty")
+
+    if val == "*":
+        return "*"
+
+    raw_parts = val.split(",")
+    norm_parts = []
+    for raw_p in raw_parts:
+        p = raw_p.strip()
+        if not p:
+            raise ValueError("days_of_week contains empty day expression")
+        if "-" in p:
+            sub = p.split("-")
+            if len(sub) != 2 or not sub[0].strip() or not sub[1].strip():
+                raise ValueError(f"Invalid day range expression: {p}")
+            s = DAY_NAME_MAP.get(sub[0].strip().lower(), sub[0].strip().lower())
+            e = DAY_NAME_MAP.get(sub[1].strip().lower(), sub[1].strip().lower())
+            if s not in VALID_DAYS and s not in VALID_NUMS:
+                raise ValueError(f"Invalid weekday name or number: {sub[0]}")
+            if e not in VALID_DAYS and e not in VALID_NUMS:
+                raise ValueError(f"Invalid weekday name or number: {sub[1]}")
+            norm_parts.append(f"{s}-{e}")
+        else:
+            token = DAY_NAME_MAP.get(p.lower(), p.lower())
+            if token not in VALID_DAYS and token not in VALID_NUMS:
+                raise ValueError(f"Invalid weekday name or number: {p}")
+            norm_parts.append(token)
+
+    normalized = ",".join(norm_parts)
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        CronTrigger(day_of_week=normalized)
+    except Exception as exc:
+        raise ValueError(f"Invalid days_of_week expression: {val}") from exc
+
+    return normalized
+
+
 class CommuteBase(SQLModel):
     name: str = "Default Commute"
     lat: float
@@ -69,12 +126,24 @@ class CommuteBase(SQLModel):
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
 
+    @field_validator("days_of_week", mode="before")
+    @classmethod
+    def validate_days_of_week_field(cls, v):
+        if v is None:
+            return "mon-fri"
+        return validate_and_normalize_days_of_week(v)
+
     def __init__(self, **data):
         if "unit_system" in data and isinstance(data["unit_system"], str):
             try:
                 data["unit_system"] = UnitSystem(data["unit_system"])
             except ValueError:
                 pass
+        if "days_of_week" in data:
+            if data["days_of_week"] is None:
+                data["days_of_week"] = "mon-fri"
+            else:
+                data["days_of_week"] = validate_and_normalize_days_of_week(data["days_of_week"])
         super().__init__(**data)
 
     def __setattr__(self, name, value):
@@ -83,6 +152,11 @@ class CommuteBase(SQLModel):
                 value = UnitSystem(value)
             except ValueError:
                 pass
+        elif name == "days_of_week":
+            if value is not None:
+                value = validate_and_normalize_days_of_week(value)
+            else:
+                value = "mon-fri"
         super().__setattr__(name, value)
 
 class Commute(CommuteBase, table=True):

@@ -86,6 +86,72 @@ def test_schedule_commute_check_registers_both_jobs():
     clear_commute_jobs(9991)
 
 
+def test_schedule_commute_check_hybrid_schedule_registers_both_legs():
+    commute = Commute(
+        id=9998,
+        name="Hybrid Schedule Commute",
+        lat=37.7749,
+        lon=-122.4194,
+        dest_name="Hybrid Office",
+        dest_lat=37.3861,
+        dest_lon=-122.0839,
+        schedule_time="08:30",
+        return_schedule_time="17:15",
+        days_of_week="mon,wed,thu",
+    )
+
+    schedule_commute_check(commute)
+
+    outbound_job = scheduler.get_job("commute_check_9998_outbound")
+    return_job = scheduler.get_job("commute_check_9998_return")
+
+    assert outbound_job is not None, "Outbound job must be registered"
+    assert return_job is not None, "Return job must be registered"
+
+    out_fields = {f.name: str(f) for f in outbound_job.trigger.fields}
+    ret_fields = {f.name: str(f) for f in return_job.trigger.fields}
+
+    assert out_fields["day_of_week"] == "mon,wed,thu"
+    assert ret_fields["day_of_week"] == "mon,wed,thu"
+    assert out_fields["hour"] == "8"
+    assert out_fields["minute"] == "30"
+    assert ret_fields["hour"] == "17"
+    assert ret_fields["minute"] == "15"
+
+    clear_commute_jobs(9998)
+
+
+def test_commute_days_of_week_validation_and_normalization():
+    # Valid normalization cases
+    c1 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week=" Mon, Wed, Thu ")
+    assert c1.days_of_week == "mon,wed,thu"
+
+    c2 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="MON-FRI")
+    assert c2.days_of_week == "mon-fri"
+
+    c3 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="monday,wednesday,friday")
+    assert c3.days_of_week == "mon,wed,fri"
+
+    c4 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="*")
+    assert c4.days_of_week == "*"
+
+    # Invalid expressions should be rejected with ValueError
+    invalid_cases = [
+        "invalid",
+        "mon-xyz",
+        "mon,,fri",
+        "",
+        "   ",
+        "123",
+        "mon-fri-sat",
+        "foo,bar",
+        "mon-",
+    ]
+    for invalid in invalid_cases:
+        with pytest.raises(ValueError):
+            Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week=invalid)
+
+
 def test_schedule_commute_check_single_leg_when_no_return_schedule():
     commute = Commute(
         id=9992,
