@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -10,6 +8,8 @@ services:
     environment:
       - DATABASE_URL=sqlite:///data/commute_check.db
       - JOBS_DB_URL=sqlite:///data/jobs.db
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env}
+      - VAPID_KEY_FILE=/app/data/vapid-keys.json
     volumes:
       - commute_data:/app/data
     restart: always
@@ -22,7 +22,7 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_URL=http://backend:8000
+      - ORIGIN=${ORIGIN:-http://localhost:3000}
     depends_on:
       - backend
     restart: always
