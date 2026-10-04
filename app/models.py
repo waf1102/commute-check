@@ -34,13 +34,18 @@ class HazardPinpoint(BaseModel):
     lat: float
     lon: float
     coordinates: Optional[Tuple[float, float]] = None
-    estimated_time: str
-    parameter: str
+    estimated_time: Optional[str] = None
+    parameter: Optional[str] = None
     parameter_breached: Optional[str] = None
-    value: float
-    threshold: float
-    warning_message: str
-    severity: Status = Status.CAUTION
+    value: Optional[float] = None
+    threshold: Optional[float] = None
+    warning_message: Optional[str] = None
+    severity: Union[Status, str] = Status.CAUTION
+    location_name: Optional[str] = None
+    title: Optional[str] = None
+    weather_conditions: Optional[str] = None
+    weather: Optional[HourlyWeather] = None
+    risk_factors: List[str] = []
 
     def __init__(self, **data):
         if "coordinates" in data and data["coordinates"]:
@@ -56,6 +61,17 @@ class HazardPinpoint(BaseModel):
             data["parameter_breached"] = data["parameter"]
         elif "parameter_breached" in data and "parameter" not in data:
             data["parameter"] = data["parameter_breached"]
+
+        if "estimated_time" not in data or data["estimated_time"] is None:
+            data["estimated_time"] = ""
+        if "parameter" not in data or data["parameter"] is None:
+            data["parameter"] = "weather"
+        if "value" not in data or data["value"] is None:
+            data["value"] = 0.0
+        if "threshold" not in data or data["threshold"] is None:
+            data["threshold"] = 0.0
+        if "warning_message" not in data or data["warning_message"] is None:
+            data["warning_message"] = data.get("title") or "Adverse weather conditions"
 
         super().__init__(**data)
 

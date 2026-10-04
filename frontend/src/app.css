@@ -1,3 +1,5 @@
+@import 'leaflet/dist/leaflet.css';
+
 :root {
   --primary: #007bff;
   --bg: #f8f9fa;
@@ -7,6 +9,9 @@
   --status-go: #28a745;
   --status-caution: #ffc107;
   --status-nogo: #dc3545;
+  --route-go: #22c55e;
+  --route-caution: #f59e0b;
+  --route-nogo: #ef4444;
 }
 
 body {

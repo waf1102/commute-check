@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getCommuteConfig, saveCommuteConfig, deleteCommuteConfig, testWebhook } from '$lib/api';
+    import { getCommuteConfig, saveCommuteConfig, deleteCommuteConfig, testWebhook, type Waypoint } from '$lib/api';
     import { jwt_token } from '$lib/auth';
     import { get } from 'svelte/store';
     import DayOfWeekSelector from '$lib/components/DayOfWeekSelector.svelte';
@@ -23,6 +23,7 @@
         dest_name?: string;
         dest_lat?: number | null;
         dest_lon?: number | null;
+        waypoints?: Waypoint[];
     }
 
     let commutes = $state<CommuteSettings[]>([]);
@@ -45,7 +46,8 @@
         lon: -0.1278,
         dest_name: '',
         dest_lat: null,
-        dest_lon: null
+        dest_lon: null,
+        waypoints: []
     };
 
     let settings = $state<CommuteSettings>({ ...defaultSettings });
@@ -55,6 +57,85 @@
     let testStatus = $state('');
     let locStatus = $state('');
     let destLocStatus = $state('');
+
+    function parseWaypoints(raw: any): Waypoint[] {
+        if (!raw) return [];
+        if (Array.isArray(raw)) {
+            return raw.map((wp, idx) => ({
+                id: wp.id ?? `wp-${idx}-${Date.now()}`,
+                name: wp.name || `Waypoint ${idx + 1}`,
+                lat: typeof wp.lat === 'number' ? wp.lat : parseFloat(wp.lat) || 0,
+                lon: typeof wp.lon === 'number' ? wp.lon : parseFloat(wp.lon) || 0,
+                status: wp.status
+            }));
+        }
+        if (typeof raw === 'string') {
+            try {
+                const parsed = JSON.parse(raw);
+                return parseWaypoints(parsed);
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }
+
+    function addWaypoint() {
+        const nextNum = (settings.waypoints?.length || 0) + 1;
+        const newWp: Waypoint = {
+            id: `wp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: `Waypoint ${nextNum}`,
+            lat: settings.lat ? parseFloat(Number(settings.lat).toFixed(4)) : 51.5074,
+            lon: settings.lon ? parseFloat(Number(settings.lon).toFixed(4)) : -0.1278
+        };
+        settings.waypoints = [...(settings.waypoints || []), newWp];
+    }
+
+    function removeWaypoint(idx: number) {
+        if (!settings.waypoints) return;
+        settings.waypoints = settings.waypoints.filter((_, i) => i !== idx);
+    }
+
+    function moveWaypointUp(idx: number) {
+        if (!settings.waypoints || idx <= 0) return;
+        const list = [...settings.waypoints];
+        const temp = list[idx - 1];
+        list[idx - 1] = list[idx];
+        list[idx] = temp;
+        settings.waypoints = list;
+    }
+
+    function moveWaypointDown(idx: number) {
+        if (!settings.waypoints || idx >= settings.waypoints.length - 1) return;
+        const list = [...settings.waypoints];
+        const temp = list[idx + 1];
+        list[idx + 1] = list[idx];
+        list[idx] = temp;
+        settings.waypoints = list;
+    }
+
+    function validateWaypoints(): boolean {
+        if (!settings.waypoints || settings.waypoints.length === 0) return true;
+        for (let i = 0; i < settings.waypoints.length; i++) {
+            const wp = settings.waypoints[i];
+            if (!wp.name || !wp.name.trim()) {
+                testStatus = `❌ Waypoint #${i + 1} name cannot be empty`;
+                setTimeout(() => testStatus = '', 5000);
+                return false;
+            }
+            if (wp.lat === null || wp.lat === undefined || isNaN(Number(wp.lat)) || Number(wp.lat) < -90 || Number(wp.lat) > 90) {
+                testStatus = `❌ Waypoint #${i + 1} latitude must be between -90 and 90`;
+                setTimeout(() => testStatus = '', 5000);
+                return false;
+            }
+            if (wp.lon === null || wp.lon === undefined || isNaN(Number(wp.lon)) || Number(wp.lon) < -180 || Number(wp.lon) > 180) {
+                testStatus = `❌ Waypoint #${i + 1} longitude must be between -180 and 180`;
+                setTimeout(() => testStatus = '', 5000);
+                return false;
+            }
+        }
+        return true;
+    }
 
     onMount(async () => {
         const token = get(jwt_token);
@@ -87,13 +168,14 @@
             dest_name: selected.dest_name || '',
             dest_lat: selected.dest_lat ?? null,
             dest_lon: selected.dest_lon ?? null,
-            return_schedule_time: selected.return_schedule_time || '17:00'
+            return_schedule_time: selected.return_schedule_time || '17:00',
+            waypoints: parseWaypoints(selected.waypoints)
         };
     }
 
     function addNewCommute() {
         selectedIndex = -1;
-        settings = { ...defaultSettings };
+        settings = { ...defaultSettings, waypoints: [] };
     }
 
     async function saveSettings(e: Event) {
@@ -103,13 +185,17 @@
             setTimeout(() => testStatus = '', 5000);
             return;
         }
+        if (!validateWaypoints()) {
+            return;
+        }
         try {
             const payload = {
                 ...settings,
                 dest_name: settings.dest_name?.trim() ? settings.dest_name.trim() : null,
                 dest_lat: settings.dest_lat !== null && settings.dest_lat !== undefined && !isNaN(settings.dest_lat) ? settings.dest_lat : null,
                 dest_lon: settings.dest_lon !== null && settings.dest_lon !== undefined && !isNaN(settings.dest_lon) ? settings.dest_lon : null,
-                return_schedule_time: settings.return_schedule_time || null
+                return_schedule_time: settings.return_schedule_time || null,
+                waypoints: settings.waypoints || []
             };
 
             await saveCommuteConfig(payload);
@@ -257,7 +343,7 @@
             </div>
         {/if}
 
-        <form onsubmit={saveSettings}>
+        <form onsubmit={saveSettings} novalidate>
             <div class="field">
                 <label for="name">Commute Name</label>
                 <input type="text" id="name" bind:value={settings.name} required>
@@ -318,6 +404,112 @@
             <div class="field" style="margin-top: 10px;">
                 <label for="return_time">Return Trip Time (Evening Departure)</label>
                 <input type="time" id="return_time" bind:value={settings.return_schedule_time}>
+            </div>
+
+            <hr>
+
+            <h3>Intermediate Waypoints</h3>
+            <p class="section-desc">Add, reorder, and remove intermediate waypoints for this commute.</p>
+
+            <div class="waypoints-editor" data-testid="waypoints-editor">
+                {#if settings.waypoints && settings.waypoints.length > 0}
+                    <div class="waypoint-list" data-testid="waypoint-list">
+                        {#each settings.waypoints as wp, idx (wp.id || idx)}
+                            <div class="waypoint-item card" data-testid="waypoint-item-{idx}">
+                                <div class="waypoint-header">
+                                    <span class="waypoint-badge">#{idx + 1}</span>
+                                    <span class="waypoint-title">{wp.name || `Waypoint ${idx + 1}`}</span>
+                                    <div class="waypoint-actions">
+                                        <button
+                                            type="button"
+                                            class="reorder-btn"
+                                            disabled={idx === 0}
+                                            onclick={() => moveWaypointUp(idx)}
+                                            title="Move Up"
+                                            aria-label="Move Waypoint Up"
+                                            data-testid="move-up-btn-{idx}"
+                                        >
+                                            ▲ Move Up
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="reorder-btn"
+                                            disabled={idx === (settings.waypoints?.length ?? 1) - 1}
+                                            onclick={() => moveWaypointDown(idx)}
+                                            title="Move Down"
+                                            aria-label="Move Waypoint Down"
+                                            data-testid="move-down-btn-{idx}"
+                                        >
+                                            ▼ Move Down
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="remove-waypoint-btn"
+                                            onclick={() => removeWaypoint(idx)}
+                                            title="Remove Waypoint"
+                                            aria-label="Remove Waypoint"
+                                            data-testid="remove-btn-{idx}"
+                                        >
+                                            ✕ Remove
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="wp_name_{idx}">Waypoint Name</label>
+                                    <input
+                                        type="text"
+                                        id="wp_name_{idx}"
+                                        placeholder="e.g. Coffee Stop, Highway Junction"
+                                        bind:value={wp.name}
+                                        required
+                                        data-testid="wp-name-input-{idx}"
+                                    />
+                                </div>
+                                <div class="field-row">
+                                    <div class="field flex-1">
+                                        <label for="wp_lat_{idx}">Latitude (-90 to 90)</label>
+                                        <input
+                                            type="number"
+                                            step="0.0001"
+                                            id="wp_lat_{idx}"
+                                            placeholder="e.g. 51.51"
+                                            bind:value={wp.lat}
+                                            data-testid="wp-lat-input-{idx}"
+                                        />
+                                        {#if wp.lat !== null && wp.lat !== undefined && (isNaN(Number(wp.lat)) || Number(wp.lat) < -90 || Number(wp.lat) > 90)}
+                                            <span class="waypoint-inline-error" data-testid="wp-lat-error-{idx}">Latitude must be between -90 and 90</span>
+                                        {/if}
+                                    </div>
+                                    <div class="field flex-1">
+                                        <label for="wp_lon_{idx}">Longitude (-180 to 180)</label>
+                                        <input
+                                            type="number"
+                                            step="0.0001"
+                                            id="wp_lon_{idx}"
+                                            placeholder="e.g. -0.12"
+                                            bind:value={wp.lon}
+                                            data-testid="wp-lon-input-{idx}"
+                                        />
+                                        {#if wp.lon !== null && wp.lon !== undefined && (isNaN(Number(wp.lon)) || Number(wp.lon) < -180 || Number(wp.lon) > 180)}
+                                            <span class="waypoint-inline-error" data-testid="wp-lon-error-{idx}">Longitude must be between -180 and 180</span>
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {:else}
+                    <p class="no-waypoints-text" data-testid="no-waypoints-text">No intermediate waypoints configured for this commute.</p>
+                {/if}
+
+                <button
+                    type="button"
+                    class="secondary add-waypoint-btn"
+                    onclick={addWaypoint}
+                    data-testid="add-waypoint-btn"
+                >
+                    + Add Waypoint
+                </button>
             </div>
 
             <hr>
@@ -565,5 +757,111 @@
     .status-msg {
         font-size: 0.9rem;
         margin-left: 10px;
+    }
+
+    /* Waypoint Editor Styles */
+    .waypoints-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .waypoint-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .waypoint-item {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 0;
+    }
+
+    .waypoint-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .waypoint-badge {
+        background: #8b5cf6;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .waypoint-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: #1e293b;
+        flex: 1;
+    }
+
+    .waypoint-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .reorder-btn {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        color: #475569;
+    }
+
+    .reorder-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    .remove-waypoint-btn {
+        background: #fee2e2;
+        border: 1px solid #fca5a5;
+        color: #b91c1c;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: pointer;
+    }
+
+    .remove-waypoint-btn:hover {
+        background: #fecaca;
+    }
+
+    .add-waypoint-btn {
+        align-self: flex-start;
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
+
+    .no-waypoints-text {
+        font-size: 0.88rem;
+        color: #64748b;
+        font-style: italic;
+        margin: 4px 0 8px;
+    }
+
+    .waypoint-inline-error {
+        color: var(--status-nogo, #dc3545);
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin-top: 3px;
+        display: block;
     }
 </style>
