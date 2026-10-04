@@ -1,143 +1,87 @@
-# Commute Check 🏍️
+# Commute Check
 
-**Commute Check** is an automated, weather-based decision engine designed to help motorcyclists and weather-sensitive commuters decide if conditions are safe for riding (**Go**, **Caution**, or **No-Go**). It continuously evaluates real-time and forecasted meteorological data against personalized safety thresholds for both morning outbound and evening return commutes.
+A small weather app for deciding whether to ride to work. Save your starting place, destination, departure times and commute days. Then check one recommendation, with separate forecasts for the trip out and the trip back.
 
----
+The app compares the forecast with your temperature, wind and rain limits. It checks saved stops too. It does **not** predict road surface conditions or guarantee a safe ride.
 
-## 🚀 Key Features
+## Use it
 
-- **Automated Weather Assessments**: Real-time evaluations powered by the Open-Meteo API.
-- **Customizable Safety Thresholds**: Tailor temperature cutoffs, maximum wind speeds/gusts, and precipitation limits to your equipment and riding comfort.
-- **Along-the-Route Weather & Waypoints (v2.0)**: Multi-waypoint route evaluation with time-interpolated weather matching and localized hazard pinpoint detection.
-- **Interactive Route Map Visualizer (v2.0)**: Embedded Leaflet visualizer featuring color-coded safety polylines (Green: Go, Amber: Caution, Red: No-Go), waypoint sequence markers, and interactive hazard alerts.
-- **Enhanced Mid-Route Hazard Notifications (v2.0)**: Web Push and Apprise alerts specifying the exact waypoint location, hazard condition, and estimated encounter time.
-- **Hybrid Commuter Scheduling (v1.5)**: Interactive day-of-week schedule selector with quick presets for flexible work-from-home schedules.
-- **Multi-Route & Destination Weather (v1.4)**: Independent evaluations for Outbound and Return commute legs with distinct coordinates and departure times.
-- **Rich Weather Visualizations (v1.3)**: Interactive Chart.js timeline with dual Y-axes (temperature/wind speed vs. rain probability) and real-time risk gauge cards.
-- **Progressive Web App (PWA) & Native Web Push (v1.3)**: Installable on iOS/Android/Desktop with offline forecast caching and direct VAPID-authenticated browser push notifications.
-- **Multi-Platform Webhook Notifications**: Integration via Apprise (Discord, Slack, Email, Pushover, Telegram, etc.).
-- **User Authentication & Multi-Tenancy (v1.2)**: Secure JWT-based authentication for isolated commute profiles and personal preferences.
-- **Assessment History & Analytics (v1.2)**: Track riding history, decision logs, and monthly trends.
-- **Geolocation Support**: Browser location auto-detection with high-accuracy and standard fallback mechanisms.
-- **Dual Unit Systems**: Support for Imperial (°F, mph) and Metric (°C, km/h).
+1. Create an account.
+2. Search for your town or postal code, or use your current location. Choose a destination.
+3. Set your departure times and commute days, then select **Save and check weather**.
+4. Before leaving, check both trips. The overall recommendation uses the worse trip. Refresh if you have left the page open.
 
----
+Weather limits, intermediate stops and notifications are optional settings. Switching units converts your limits. Uncheck the return trip for a one-way commute. A return time earlier than the outbound time means the following day.
 
-## 🛠️ Tech Stack
+## Run locally
 
-- **Backend**: Python 3.11+, FastAPI, SQLModel (SQLAlchemy 2.0 / Pydantic v2), APScheduler, OSRM Routing, SQLite.
-- **Frontend**: SvelteKit 2, Svelte 5 (Runes), TypeScript, Leaflet, Chart.js, Service Worker PWA.
-- **Notifications**: PyWebPush (VAPID) and Apprise.
-- **Weather Source**: Open-Meteo API.
-- **Infrastructure**: Docker & Docker Compose.
+Requires Python 3.11+ and Node 22. Internet access is needed for place searches and real forecasts.
 
----
+From the repository root:
 
-## 🏁 Getting Started
-
-### Prerequisites
-
-- **Python**: Python 3.11 or later
-- **Node.js**: Node 20 or later (with `npm`)
-- **Docker**: (Optional) Docker & Docker Compose
-
----
-
-### Local Development Setup
-
-#### 1. Backend
-
-```bash
-# Create and activate virtual environment
+```sh
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Start backend server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env
 ```
 
-The backend API will be accessible at:
-- **API Base**: `http://localhost:8000`
-- **Interactive Swagger Docs**: `http://localhost:8000/docs`
+Set `SECRET_KEY` in `.env` to a random value (generate one with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`). Keep it private and stable across restarts.
 
-#### 2. Frontend
+Start the API:
 
-```bash
+```sh
+uvicorn app.main:app --reload --port 8000
+```
+
+In another terminal:
+
+```sh
 cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
+npm ci
 npm run dev
 ```
 
-The frontend will be accessible at: `http://localhost:5173`
+Open **http://localhost:5173**. The frontend forwards `/api/*` to the Python server; no browser API URL or separate proxy is needed. To use a different API server, set `BACKEND_URL` when starting the frontend. API documentation is at http://localhost:8000/docs.
 
----
+## Docker
 
-### Running with Docker Compose
+After configuring `.env`:
 
-```bash
-# Build and start all services in the background
-docker-compose up -d
-
-# View service logs
-docker-compose logs -f
+```sh
+docker compose up --build -d
 ```
 
-- **Frontend UI**: `http://localhost:3000`
-- **Backend API**: `http://localhost:8000`
+Open **http://localhost:3000**. SQLite databases and push keys are stored in the `commute_data` volume. Back up that volume before upgrading. Do not use `docker compose down -v` unless you intend to delete the data.
 
----
+For a public installation, use HTTPS and set `ORIGIN` to the public frontend URL. HTTPS (or localhost) is required for browser location and push notifications. Run **one backend process**: it owns the notification scheduler. This is a small self-hosted app, without password reset or email verification; apply access controls and rate limits at your reverse proxy if exposing it publicly.
 
-## 🧪 Testing
+## Verify changes
 
-### Backend Tests (pytest)
-
-```bash
-# Run all unit and integration tests
-pytest tests/ -v
-```
-
-### Frontend Tests (vitest & svelte-check)
-
-```bash
+```sh
+pytest -q
 cd frontend
-
-# Run unit tests
-npm test
-
-# Run TypeScript & Svelte compiler checks
 npm run check
-
-# Verify production build
+npm test
 npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
----
+The browser tests start a real FastAPI server, an isolated SQLite database and the frontend gateway. Only weather, routing and place providers are replaced. They cover registration, place selection, saving, both trips, one-way trips, metric units, unavailable forecasts, sign-in after reload, unsaved edits and correcting the ride log, on desktop and phone-sized Chromium. They also check accessibility with axe. They do not verify real notification delivery or Safari/iOS behaviour.
 
-## 📚 Documentation
+Backend tests must not make external HTTP requests. Forecast fixtures cover multiple days; tests should not depend on today's actual weather. `npm test` runs once; `npm run test:watch` watches. Format the frontend with `npm run format`; Python files use `ruff format app tests` (Ruff 0.16.10).
 
-Detailed documentation is available in the [`docs/`](docs/) directory:
-- [Architecture & Design Guide](docs/architecture.md)
-- [API Reference](docs/api.md)
+## Forecast behaviour and limits
 
----
+- Checks use the next scheduled commute day, or today's commute if the return trip is still ahead. Both times use the commute's saved time zone.
+- Weather is sampled at the origin, destination and optional stops, interpolated at estimated arrival times. This is **not continuous coverage of every road segment**.
+- Road travel times come from OSRM, without traffic or time spent at stops. If routing fails, a distance-based estimate is used and labelled on the result.
+- Open-Meteo responses are cached for up to 15 minutes. “Checked” is the assessment time, not the forecast's publication time.
+- A failed or incomplete weather response shows “Forecast unavailable.” Personal forecasts are not served from an offline cache.
+- Notifications run at the saved departure times. Provider or network failures can prevent delivery; check the app if no notification arrives.
+- Location search finds towns/cities/postal codes, not street addresses. Use current location or exact coordinates for precision.
 
-## 📊 Project Milestones
+Existing SQLite databases gain `origin_name` and `timezone` columns automatically, without replacing rows. Older commutes default to UTC because their intended time zone was never stored: review **Your commute → Time zone** after upgrading. Also review weather limits if you changed units in the old interface; the app cannot reliably infer what those old numbers meant.
 
-- [x] **v1.0: Core MVP** (Weather assessment engine, basic UI, SQLite persistence, APScheduler).
-- [x] **v1.1: Resilience & Notifications** (Apprise webhooks, geolocation fallbacks, retry logic, TTL caching).
-- [x] **v1.2: Multi-User & Analytics** (JWT authentication, user-isolated commutes, decision history & analytics).
-- [x] **v1.3: Visualizations & PWA** (Interactive Chart.js timeline, risk gauges, installable PWA, VAPID Web Push).
-- [x] **v1.4: Multi-Route & Destination Weather** (Origin & destination coordinates, dual-leg outbound/return schedules, leg risk cards).
-- [x] **v1.5: Hybrid Commuter Scheduling** (Interactive day-of-week schedule selector with discrete weekday/hybrid presets).
-- [x] **v2.0: Interactive Route Waypoints & Along-the-Route Weather** (Multi-waypoint OSRM routing with haversine fallback, time-interpolated weather sampling across segments, interactive Leaflet route map visualizer with color-coded safety polylines, and mid-route hazard notifications).
-
----
-
-Built for riders, by riders. 🏍️
+See [architecture](docs/architecture.md) and [API contracts](docs/api.md) for maintenance details. Weather and geocoding are provided by [Open-Meteo](https://open-meteo.com/en/docs), with [GeoNames](https://www.geonames.org/) location data. Check provider terms before commercial deployment.
