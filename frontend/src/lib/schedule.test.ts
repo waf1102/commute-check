@@ -6,7 +6,7 @@ import {
   formatDaysSummary,
   DAYS_OF_WEEK,
   WEEKDAYS,
-  ALL_DAYS,
+  ALL_DAYS
 } from './schedule';
 
 describe('schedule utility functions', () => {

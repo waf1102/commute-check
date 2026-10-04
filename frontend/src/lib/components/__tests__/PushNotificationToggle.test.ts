@@ -10,7 +10,7 @@ vi.mock('$lib/api', async (importOriginal) => {
     getVapidPublicKey: vi.fn(),
     subscribePush: vi.fn(),
     unsubscribePush: vi.fn(),
-    sendTestPush: vi.fn(),
+    sendTestPush: vi.fn()
   };
 });
 
@@ -46,7 +46,7 @@ describe('PushNotificationToggle', () => {
         ready: Promise.resolve({
           pushManager: {
             getSubscription: mockGetSubscription,
-            subscribe: mockSubscribe,
+            subscribe: mockSubscribe
           }
         })
       },
@@ -63,7 +63,9 @@ describe('PushNotificationToggle', () => {
   });
 
   it('subscribes to push notifications when Enable Push button is clicked', async () => {
-    (api.getVapidPublicKey as any).mockResolvedValue({ public_key: 'BEl62iUYgUivxIkv69yViEuiM23V9A' });
+    (api.getVapidPublicKey as any).mockResolvedValue({
+      public_key: 'BEl62iUYgUivxIkv69yViEuiM23V9A'
+    });
     (api.subscribePush as any).mockResolvedValue({ status: 'subscribed' });
 
     render(PushNotificationToggle);

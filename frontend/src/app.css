@@ -1,57 +1,211 @@
-@import 'leaflet/dist/leaflet.css';
-
 :root {
-  --primary: #007bff;
-  --bg: #f8f9fa;
-  --text: #212529;
-  --card-bg: #ffffff;
-  --border: #dee2e6;
-  --status-go: #28a745;
-  --status-caution: #ffc107;
-  --status-nogo: #dc3545;
-  --route-go: #22c55e;
-  --route-caution: #f59e0b;
-  --route-nogo: #ef4444;
+  --primary: #285346;
+  --bg: #f6f5f1;
+  --text: #252c28;
+  --muted: #626b65;
+  --card-bg: #fff;
+  --border: #d9ddd6;
+  --status-go: #366743;
+  --status-caution: #916213;
+  --status-nogo: #a33c36;
+  --route-go: #366743;
+  --route-caution: #916213;
+  --route-nogo: #a33c36;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.55;
 }
-
+* {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
 }
-
-.container {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.card {
-  background-color: var(--card-bg);
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  padding: 20px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border);
-}
-
-h1, h2, h3 {
+h1,
+h2,
+h3 {
+  line-height: 1.25;
   margin-top: 0;
 }
-
-nav {
-  margin-bottom: 20px;
+h1 {
+  font-size: clamp(1.85rem, 5vw, 2.5rem);
+  letter-spacing: -0.03em;
+  margin-bottom: 1rem;
 }
-
-nav a {
-  margin-right: 15px;
-  text-decoration: none;
+h2 {
+  font-size: 1.25rem;
+}
+p {
+  margin-top: 0;
+}
+a {
   color: var(--primary);
-  font-weight: bold;
+  text-underline-offset: 0.2em;
 }
-
-nav a:hover {
+a:hover {
+  text-decoration-thickness: 2px;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+.button {
+  min-height: 46px;
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+  background: var(--primary);
+  color: white;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-weight: 650;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+button:hover,
+.button:hover {
+  filter: brightness(0.94);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+button.secondary,
+.button.secondary {
+  background: white;
+  color: var(--primary);
+  border-color: var(--border);
+}
+.text-button {
+  padding: 0.6rem 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--primary);
   text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.danger {
+  color: var(--status-nogo);
+  background: transparent;
+  border-color: currentColor;
+}
+.text-button.danger {
+  border-color: transparent;
+}
+:focus-visible {
+  outline: 3px solid #b17a29;
+  outline-offset: 3px;
+}
+input:not([type='checkbox']),
+select {
+  width: 100%;
+  min-height: 46px;
+  background: white;
+  border: 1px solid #a7b1a9;
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.65rem 0.7rem;
+  margin: 0.35rem 0 0.8rem;
+}
+input[type='checkbox'] {
+  width: 21px;
+  height: 21px;
+  accent-color: var(--primary);
+}
+label {
+  display: block;
+  font-weight: 600;
+}
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 400;
+  margin: 0.5rem 0 1.25rem;
+}
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+.page-heading {
+  margin: 1.3rem 0 2rem;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 0.7rem;
+}
+.muted {
+  color: var(--muted);
+}
+.two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1.25rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+details {
+  border-top: 1px solid var(--border);
+  padding: 1rem 0;
+}
+details > :last-child {
+  margin-bottom: 0;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 30px;
+}
+details[open] > summary {
+  margin-bottom: 1rem;
+}
+.notice {
+  padding: 1rem;
+  background: #edf3ed;
+  border-left: 3px solid var(--primary);
+}
+.error {
+  color: #862c28;
+  background: #f9eded;
+  border-color: var(--status-nogo);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 480px) {
+  .card {
+    padding: 1.1rem;
+  }
+  .two-columns {
+    grid-template-columns: 1fr;
+  }
 }

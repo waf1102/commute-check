@@ -1,118 +1,75 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-import SettingsPage from './+page.svelte';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/svelte';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { writable } from 'svelte/store';
+import { newCommute } from '$lib/commute';
 import * as api from '$lib/api';
-
-vi.mock('$lib/api', () => ({
+import { goto } from '$app/navigation';
+import Page from './+page.svelte';
+vi.mock('$lib/auth', () => ({ jwt_token: writable('token') }));
+vi.mock('$app/navigation', () => ({ goto: vi.fn(), beforeNavigate: vi.fn() }));
+vi.mock('$lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/api')>()),
   getCommuteConfig: vi.fn(),
   saveCommuteConfig: vi.fn(),
-  deleteCommuteConfig: vi.fn(),
-  testWebhook: vi.fn(),
+  searchPlaces: vi.fn()
 }));
-
-vi.mock('$lib/auth', () => ({
-  jwt_token: {
-    subscribe: vi.fn((fn) => {
-      fn('mock-token');
-      return () => {};
-    }),
-  },
-}));
-
-describe('Settings Page (+page.svelte) - Schedule Selector Integration', () => {
-  const mockCommute = {
-    id: 1,
-    name: 'Work Commute',
-    unit_system: 'imperial',
-    min_temp_caution: 40,
-    min_temp_no_go: 35,
-    max_wind_caution: 20,
-    max_wind_no_go: 35,
-    rain_threshold: 50,
-    webhook_url: '',
-    schedule_time: '08:00',
-    return_schedule_time: '17:00',
-    days_of_week: 'mon,wed,thu',
-    lat: 37.7749,
-    lon: -122.4194,
-    dest_name: 'Office',
-    dest_lat: 37.3861,
-    dest_lon: -122.0839,
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([]);
+});
+afterEach(cleanup);
+it('does not silently save an invented default location', async () => {
+  render(Page);
+  await fireEvent.click(await screen.findByRole('button', { name: 'Save and check weather' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Choose where you leave from');
+  expect(api.saveCommuteConfig).not.toHaveBeenCalled();
+});
+it('saves a new commute once and continues straight to its forecast', async () => {
+  const commute = {
+    ...newCommute(),
+    id: 3,
+    origin_name: 'Boston',
+    lat: 42,
+    lon: -71,
+    dest_name: 'Cambridge',
+    dest_lat: 42.1,
+    dest_lon: -71.1
   };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (api.getCommuteConfig as any).mockResolvedValue([mockCommute]);
-    (api.saveCommuteConfig as any).mockResolvedValue(mockCommute);
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([commute]);
+  vi.mocked(api.saveCommuteConfig).mockResolvedValue(commute);
+  render(Page);
+  await fireEvent.click(await screen.findByRole('button', { name: 'Save and check weather' }));
+  await waitFor(() => expect(goto).toHaveBeenCalledWith('/?commute=3'));
+  expect(api.saveCommuteConfig).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(api.saveCommuteConfig).mock.calls[0][0]).toMatchObject({
+    id: 3,
+    lat: 42,
+    dest_lat: 42.1
   });
-
-  it('loads existing commute days_of_week and reflects active days in selector', async () => {
-    render(SettingsPage);
-
-    await waitFor(() => {
-      expect(api.getCommuteConfig).toHaveBeenCalledTimes(1);
-    });
-
-    // Check that Monday, Wednesday, Thursday are active
-    const monBtn = await screen.findByRole('button', { name: 'Monday' });
-    const tueBtn = await screen.findByRole('button', { name: 'Tuesday' });
-    const wedBtn = await screen.findByRole('button', { name: 'Wednesday' });
-    const thuBtn = await screen.findByRole('button', { name: 'Thursday' });
-    const friBtn = await screen.findByRole('button', { name: 'Friday' });
-
-    expect(monBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(tueBtn).toHaveAttribute('aria-pressed', 'false');
-    expect(wedBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(thuBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(friBtn).toHaveAttribute('aria-pressed', 'false');
+});
+it('converts weather limits when changing units', async () => {
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([
+    { ...newCommute(), id: 3, lat: 42, lon: -71, dest_lat: 42.1, dest_lon: -71.1 }
+  ]);
+  render(Page);
+  await fireEvent.change(await screen.findByLabelText('Weather units'), {
+    target: { value: 'metric' }
   });
-
-  it('serializes toggled days back to backend cron format upon saving settings', async () => {
-    render(SettingsPage);
-
-    await waitFor(() => {
-      expect(api.getCommuteConfig).toHaveBeenCalledTimes(1);
-    });
-
-    // Toggle Friday on
-    const friBtn = await screen.findByRole('button', { name: 'Friday' });
-    await fireEvent.click(friBtn);
-    expect(friBtn).toHaveAttribute('aria-pressed', 'true');
-
-    // Click Save Commute button
-    const saveBtn = screen.getByRole('button', { name: 'Save Commute' });
-    await fireEvent.click(saveBtn);
-
-    await waitFor(() => {
-      expect(api.saveCommuteConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          days_of_week: 'mon,wed,thu,fri',
-        })
-      );
-    });
+  const temp = screen.getByLabelText(/Cold: take care below/);
+  expect(temp).toHaveValue(7.2);
+  expect(screen.getByLabelText(/Wind: take care above/)).toHaveValue(24.1);
+});
+it('keeps entered changes and shows the server error when saving fails', async () => {
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([
+    { ...newCommute(), id: 3, lat: 42, lon: -71, dest_lat: 42.1, dest_lon: -71.1 }
+  ]);
+  vi.mocked(api.saveCommuteConfig).mockRejectedValue(new Error('Please try again'));
+  render(Page);
+  await fireEvent.input(await screen.findByLabelText('Commute name'), {
+    target: { value: 'My office' }
   });
-
-  it('updates days via preset and serializes on save', async () => {
-    render(SettingsPage);
-
-    await waitFor(() => {
-      expect(api.getCommuteConfig).toHaveBeenCalledTimes(1);
-    });
-
-    // Click Weekdays preset
-    const weekdaysPreset = await screen.findByRole('button', { name: 'Weekdays' });
-    await fireEvent.click(weekdaysPreset);
-
-    // Save
-    const saveBtn = screen.getByRole('button', { name: 'Save Commute' });
-    await fireEvent.click(saveBtn);
-
-    await waitFor(() => {
-      expect(api.saveCommuteConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          days_of_week: 'mon,tue,wed,thu,fri',
-        })
-      );
-    });
-  });
+  await fireEvent.click(screen.getByRole('button', { name: 'Save and check weather' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Please try again');
+  expect(screen.getByLabelText('Commute name')).toHaveValue('My office');
+  expect(goto).not.toHaveBeenCalled();
 });

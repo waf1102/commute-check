@@ -5,14 +5,14 @@
     ALL_DAYS,
     parseDaysOfWeek,
     serializeDaysOfWeek,
-    formatDaysSummary,
+    formatDaysSummary
   } from '$lib/schedule';
 
   let {
     value = $bindable('mon-fri'),
     disabled = false,
     id = 'day-of-week-selector',
-    onChange,
+    onChange
   }: {
     value?: string;
     disabled?: boolean;
@@ -85,20 +85,10 @@
 
   <div class="presets-row" role="group" aria-label="Schedule presets">
     <span class="presets-title">Presets:</span>
-    <button
-      type="button"
-      class="preset-btn"
-      {disabled}
-      onclick={() => applyPreset('weekdays')}
-    >
+    <button type="button" class="preset-btn" {disabled} onclick={() => applyPreset('weekdays')}>
       Weekdays
     </button>
-    <button
-      type="button"
-      class="preset-btn"
-      {disabled}
-      onclick={() => applyPreset('all')}
-    >
+    <button type="button" class="preset-btn" {disabled} onclick={() => applyPreset('all')}>
       All Days
     </button>
     <button

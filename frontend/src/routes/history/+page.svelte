@@ -1,113 +1,143 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { user } from '$lib/auth';
+  import { jwt_token } from '$lib/auth';
   import { getCommuteStats, recordDecision } from '$lib/api';
-  import CommuteHistoryChart from '$lib/charts/CommuteHistoryChart.svelte';
-
-  let startDate = $state(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
-  let endDate = $state(new Date().toISOString().split('T')[0]);
-  let chartData = $state<any>(null);
-  let error = $state<string | null>(null);
-  let successMessage = $state<string | null>(null);
-  let isRecording = $state(false);
-
-  async function fetchHistory() {
-    error = null;
-    let userId: string | undefined = undefined;
-    const unsubscribe = user.subscribe((u: any) => {
-      if (u && u.id) userId = String(u.id);
-    });
-    unsubscribe();
-
-    try {
-      const data = await getCommuteStats(userId, startDate, endDate);
-      const dailyStats = Array.isArray(data)
-        ? data
-        : (data && Array.isArray(data.daily_stats) ? data.daily_stats : []);
-
-      chartData = {
-        labels: dailyStats.map((d: any) => d.date),
-        datasets: [
-          {
-            label: 'Days Ridden',
-            data: dailyStats.map((d: any) => d.days_ridden),
-            backgroundColor: 'blue',
-            borderColor: 'blue'
-          },
-          {
-            label: 'Days Driven',
-            data: dailyStats.map((d: any) => d.days_driven),
-            backgroundColor: 'red',
-            borderColor: 'red'
-          }
-        ]
-      };
-    } catch (e: any) {
-      error = `Error fetching commute data: ${e.message || e}`;
-    }
+  function localDate(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
-
-  async function handleRecordDecision(decision: 'riding' | 'driving') {
-    isRecording = true;
-    error = null;
-    successMessage = null;
+  let startDate = $state(localDate(new Date(Date.now() - 30 * 86400000)));
+  let endDate = $state(localDate());
+  let rows = $state<
+    { date: string; days_ridden: number; days_driven: number; days_total: number }[]
+  >([]);
+  let loading = $state(false);
+  let recording = $state(false);
+  let error = $state('');
+  let message = $state('');
+  let generation = 0;
+  async function load() {
+    error = '';
+    if (!startDate || !endDate || startDate > endDate) {
+      error = 'Choose an end date on or after the start date.';
+      return;
+    }
+    const current = ++generation;
+    loading = true;
     try {
-      await recordDecision({ decision });
-      successMessage = `Recorded today's commute as ${decision === 'riding' ? 'Riding 🏍️' : 'Driving 🚗'}!`;
-      await fetchHistory();
-    } catch (e: any) {
-      error = `Error recording decision: ${e.message || e}`;
+      const response = await getCommuteStats(startDate, endDate);
+      if (current === generation)
+        rows = response.filter((r: { days_total: number }) => r.days_total > 0).reverse();
+    } catch (e) {
+      if (current === generation) error = (e as Error).message;
     } finally {
-      isRecording = false;
+      if (current === generation) loading = false;
     }
   }
-
+  async function record(decision: 'riding' | 'driving') {
+    recording = true;
+    message = '';
+    error = '';
+    try {
+      await recordDecision({ decision, date: localDate() });
+      message = `Saved: you ${decision === 'riding' ? 'rode' : 'drove'} today. Choose again to change it.`;
+      await load();
+    } catch (e) {
+      error = (e as Error).message;
+    } finally {
+      recording = false;
+    }
+  }
   onMount(() => {
-    fetchHistory();
+    if ($jwt_token) load();
   });
 </script>
 
-<h1>Commute History</h1>
-
-{#if error}
-  <p class="text-red-500 my-2">{error}</p>
-{/if}
-
-{#if successMessage}
-  <p class="text-green-600 my-2">{successMessage}</p>
-{/if}
-
-<div class="flex gap-4 my-4 items-center flex-wrap">
-  <label>
-    Start Date
-    <input type="date" bind:value={startDate} />
-  </label>
-  <label>
-    End Date
-    <input type="date" bind:value={endDate} />
-  </label>
-  <button onclick={fetchHistory}>Refresh</button>
-
-  <div class="flex gap-2 items-center ml-auto">
-    <span class="text-sm font-semibold">Log Today:</span>
-    <button
-      class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
-      disabled={isRecording}
-      onclick={() => handleRecordDecision('riding')}
-    >
-      🏍️ Rode
-    </button>
-    <button
-      class="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 disabled:opacity-50"
-      disabled={isRecording}
-      onclick={() => handleRecordDecision('driving')}
-    >
-      🚗 Drove
-    </button>
-  </div>
+<svelte:head><title>Ride history · Commute Check</title></svelte:head>
+<div class="page-heading">
+  <p class="eyebrow">Your riding days</p>
+  <h1>Ride history</h1>
 </div>
-
-{#if chartData}
-  <CommuteHistoryChart {chartData} />
+{#if !$jwt_token}<section class="card">
+    <p>Sign in to see your ride history.</p>
+    <a class="button" href="/login">Sign in</a>
+  </section>
+{:else}
+  <section class="card">
+    <h2>How did you travel today?</h2>
+    <p class="muted">Optional. Keep a simple record of your riding days.</p>
+    <div class="actions">
+      <button disabled={recording} onclick={() => record('riding')}>I rode</button><button
+        class="secondary"
+        disabled={recording}
+        onclick={() => record('driving')}>I drove</button
+      >
+    </div>
+    {#if message}<p class="notice" role="status">{message}</p>{/if}
+  </section>
+  <form
+    class="card"
+    onsubmit={(e) => {
+      e.preventDefault();
+      load();
+    }}
+  >
+    <div class="two-columns">
+      <label>From<input type="date" bind:value={startDate} required /></label><label
+        >To<input type="date" bind:value={endDate} required /></label
+      >
+    </div>
+    <button class="secondary" disabled={loading}>Show history</button>
+  </form>
+  {#if error}<p class="notice error" role="alert">{error}</p>{:else if loading}<p role="status">
+      Loading history…
+    </p>{:else if !rows.length}<section class="card">
+      <h2>No rides logged in this period</h2>
+      <p>Record today’s trip above, or choose another date range.</p>
+    </section>{:else}
+    <section class="card">
+      <table>
+        <caption>Recorded trips</caption><thead
+          ><tr><th scope="col">Date</th><th scope="col">Travel</th></tr></thead
+        ><tbody
+          >{#each rows as row}<tr
+              ><th scope="row"
+                >{new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}</th
+              ><td
+                >{row.days_ridden ? 'Rode' : ''}{row.days_ridden && row.days_driven
+                  ? ' & '
+                  : ''}{row.days_driven ? 'Drove' : ''}</td
+              ></tr
+            >{/each}</tbody
+        >
+      </table>
+    </section>
+  {/if}
 {/if}
 
+<style>
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+  caption {
+    text-align: left;
+    font-weight: 650;
+    margin-bottom: 1rem;
+  }
+  th,
+  td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.8rem 0.2rem;
+  }
+  tbody th {
+    font-weight: 400;
+  }
+  .notice {
+    margin: 1rem 0 0;
+  }
+</style>

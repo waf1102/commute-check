@@ -13,7 +13,7 @@
     error = null;
     try {
       await register(email, password);
-      goto('/login');
+      goto('/settings');
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -22,94 +22,52 @@
   }
 </script>
 
-<div class="register-container">
-  <h1>Register</h1>
+<svelte:head><title>Create account · Commute Check</title></svelte:head>
+<section class="auth card">
+  <p class="eyebrow">Commute Check</p>
+  <h1>Set up your account</h1>
+  <p class="muted">Save your commute and check the weather before you ride.</p>
   <form onsubmit={handleSubmit}>
-    <div class="form-group">
-      <label for="email">Email</label>
-      <input type="email" id="email" bind:value={email} required />
-    </div>
-    <div class="form-group">
-      <label for="password">Password</label>
-      <input type="password" id="password" bind:value={password} required />
-    </div>
-    {#if error}
-      <p class="error-message">{error}</p>
-    {/if}
-    <button type="submit" disabled={loading}>
-      {#if loading}
-        Registering...
-      {:else}
-        Register
-      {/if}
-    </button>
+    <label for="email"
+      >Email address<input
+        type="email"
+        id="email"
+        bind:value={email}
+        autocomplete="email"
+        autocapitalize="none"
+        required
+      /></label
+    >
+    <label for="password"
+      >Password<input
+        type="password"
+        id="password"
+        bind:value={password}
+        autocomplete="new-password"
+        minlength="8"
+        required
+      /></label
+    >
+    <p class="muted">Use at least 8 characters.</p>
+    {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+    <button type="submit" disabled={loading}>{loading ? 'Please wait…' : 'Create account'}</button>
   </form>
-</div>
+  <p class="switch">Already have an account? <a href="/login">Sign in</a></p>
+</section>
 
 <style>
-  .register-container {
-    max-width: 400px;
-    margin: 50px auto;
-    padding: 20px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  .auth {
+    max-width: 430px;
+    margin: 2rem auto;
   }
-
   h1 {
-    text-align: center;
-    margin-bottom: 20px;
-    color: #333;
+    font-size: 1.8rem;
   }
-
-  .form-group {
-    margin-bottom: 15px;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: bold;
-    color: #555;
-  }
-
-  input[type="email"],
-  input[type="password"] {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-sizing: border-box; /* Ensures padding doesn't increase width */
-  }
-
   button {
     width: 100%;
-    padding: 10px;
-    background-color: #28a745;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background-color 0.2s;
+    margin-top: 0.5rem;
   }
-
-  button:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-  }
-
-  button:hover:not(:disabled) {
-    background-color: #218838;
-  }
-
-  .error-message {
-    color: #dc3545;
-    background-color: #f8d7da;
-    border: 1px solid #f5c6cb;
-    padding: 10px;
-    border-radius: 4px;
-    margin-bottom: 15px;
-    text-align: center;
+  .switch {
+    margin: 1.5rem 0 0;
   }
 </style>

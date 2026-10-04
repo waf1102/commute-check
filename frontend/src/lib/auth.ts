@@ -1,90 +1,63 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 
+export const jwt_token = writable<string | null>(null);
 export interface UserProfile {
   id: string | number;
   email?: string;
 }
-
 export interface JwtPayload {
   sub?: string;
   email?: string;
   name?: string;
   exp?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
+export const user = writable<UserProfile | null>(null);
 
-export function decodeJwt<T = JwtPayload>(token: string | null | undefined): T | null {
-  if (!token || typeof token !== 'string') return null;
-  const parts = token.split('.');
-  if (parts.length < 2) return null;
-
+// Decoding is for display only; the server verifies identity and permissions.
+export function decodeJwt(token: string | null | undefined): JwtPayload | null {
+  if (!token || token.split('.').length !== 3) return null;
   try {
-    const base64Url = parts[1];
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4 !== 0) {
-      base64 += '=';
+    const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '='));
+    let decoded = binary;
+    try {
+      decoded = decodeURIComponent(
+        Array.from(binary, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+      );
+    } catch {
+      /* Legacy Latin-1 tokens. */
     }
-
-    let decodedStr: string;
-    if (typeof atob === 'function') {
-      const binary = atob(base64);
-      try {
-        decodedStr = decodeURIComponent(
-          binary
-            .split('')
-            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-        );
-      } catch {
-        decodedStr = binary;
-      }
-    } else if (typeof Buffer !== 'undefined') {
-      decodedStr = Buffer.from(base64, 'base64').toString('utf-8');
-    } else {
-      return null;
-    }
-
-    return JSON.parse(decodedStr);
+    const payload = JSON.parse(decoded);
+    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
   } catch {
     return null;
   }
 }
-
 export function getUserEmailFromToken(token: string | null | undefined): string {
-  if (!token) return '';
   const payload = decodeJwt(token);
-  return payload?.email || payload?.sub || payload?.name || '';
+  const email = payload?.email || payload?.sub || payload?.name;
+  return typeof email === 'string' ? email : '';
 }
 
-export const jwt_token = writable<string | null>(null);
-export const user = writable<UserProfile | null>(null);
-
 export async function fetchCurrentUser(token?: string): Promise<UserProfile | null> {
-  const activeToken = token || (browser ? localStorage.getItem('jwt_token') : null);
-  if (!activeToken || activeToken === 'undefined' || activeToken === 'null') {
-    user.set(null);
-    return null;
-  }
-
+  const activeToken = token || get(jwt_token);
+  if (!activeToken) return null;
   try {
     const response = await fetch('/api/auth/me', {
-      headers: {
-        'Authorization': `Bearer ${activeToken}`,
-      },
+      headers: { Authorization: `Bearer ${activeToken}` },
+      signal: AbortSignal.timeout(10000)
     });
-
     if (response.ok) {
-      const userData: UserProfile = await response.json();
-      user.set(userData);
-      return userData;
-    } else if (response.status === 401) {
-      logout();
-      return null;
+      const profile = await response.json();
+      if (get(jwt_token) === activeToken) user.set(profile);
+      return profile;
     }
-  } catch (err) {
-    console.error('Failed to fetch user:', err);
+    if (response.status === 401 && get(jwt_token) === activeToken) logout();
+  } catch {
+    /* Identity can be loaded again when the connection returns. */
   }
   return null;
 }
@@ -93,33 +66,29 @@ if (browser) {
   const storedToken = localStorage.getItem('jwt_token');
   if (storedToken && storedToken !== 'undefined' && storedToken !== 'null') {
     jwt_token.set(storedToken);
-    fetchCurrentUser(storedToken).catch(() => {});
   } else if (storedToken) {
     localStorage.removeItem('jwt_token');
   }
 }
 
-async function handleAuthResponse(response: Response): Promise<string> {
+async function handleAuthResponse(response: Response) {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Authentication failed');
+    throw new Error(
+      typeof errorData.detail === 'string'
+        ? errorData.detail
+        : errorData.detail?.[0]?.msg || 'Could not sign in. Please try again.'
+    );
   }
   const data = await response.json();
   const token = data.access_token;
-  if (!token) {
-    throw new Error('Authentication response did not contain access_token');
-  }
+  if (!token) throw new Error('Sign in failed. Please try again.');
   if (browser) {
     localStorage.setItem('jwt_token', token);
   }
   jwt_token.set(token);
-
-  if (data.user) {
-    user.set(data.user);
-  } else {
-    await fetchCurrentUser(token);
-  }
-
+  if (data.user) user.set(data.user);
+  else await fetchCurrentUser(token);
   return token;
 }
 
@@ -127,36 +96,22 @@ export async function login(email: string, password: string): Promise<string> {
   const response = await fetch('/api/login', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: JSON.stringify({ email, password }),
+    body: new URLSearchParams({ username: email.trim(), password })
   });
   return handleAuthResponse(response);
 }
 
-export async function register(email: string, password: string): Promise<any> {
+export async function register(email: string, password: string): Promise<string> {
   const response = await fetch('/api/register', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password })
   });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Registration failed');
-  }
-  const data = await response.json();
-  if (data.access_token) {
-    if (browser) {
-      localStorage.setItem('jwt_token', data.access_token);
-    }
-    jwt_token.set(data.access_token);
-    if (data.user) {
-      user.set(data.user);
-    }
-  }
-  return data;
+  return handleAuthResponse(response);
 }
 
 export function logout() {
@@ -165,7 +120,5 @@ export function logout() {
   }
   jwt_token.set(null);
   user.set(null);
-  if (browser) {
-    goto('/login');
-  }
+  goto('/login');
 }

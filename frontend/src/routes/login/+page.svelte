@@ -13,7 +13,7 @@
     error = null;
     try {
       await login(email, password);
-      goto('/');
+      await goto('/');
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -22,94 +22,51 @@
   }
 </script>
 
-<div class="login-container">
-  <h1>Login</h1>
+<svelte:head><title>Sign in · Commute Check</title></svelte:head>
+<section class="auth card">
+  <p class="eyebrow">Commute Check</p>
+  <h1>Welcome back</h1>
+  <p class="muted">Sign in to check your commute.</p>
   <form onsubmit={handleSubmit}>
-    <div class="form-group">
-      <label for="email">Email</label>
-      <input type="email" id="email" bind:value={email} required />
-    </div>
-    <div class="form-group">
-      <label for="password">Password</label>
-      <input type="password" id="password" bind:value={password} required />
-    </div>
-    {#if error}
-      <p class="error-message">{error}</p>
-    {/if}
-    <button type="submit" disabled={loading}>
-      {#if loading}
-        Logging in...
-      {:else}
-        Login
-      {/if}
-    </button>
+    <label for="email"
+      >Email address<input
+        type="email"
+        id="email"
+        bind:value={email}
+        autocomplete="email"
+        autocapitalize="none"
+        required
+      /></label
+    >
+    <label for="password"
+      >Password<input
+        type="password"
+        id="password"
+        bind:value={password}
+        autocomplete="current-password"
+        required
+      /></label
+    >
+
+    {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+    <button type="submit" disabled={loading}>{loading ? 'Please wait…' : 'Sign in'}</button>
   </form>
-</div>
+  <p class="switch">New here? <a href="/register">Create an account</a></p>
+</section>
 
 <style>
-  .login-container {
-    max-width: 400px;
-    margin: 50px auto;
-    padding: 20px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  .auth {
+    max-width: 430px;
+    margin: 2rem auto;
   }
-
   h1 {
-    text-align: center;
-    margin-bottom: 20px;
-    color: #333;
+    font-size: 1.8rem;
   }
-
-  .form-group {
-    margin-bottom: 15px;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: bold;
-    color: #555;
-  }
-
-  input[type="email"],
-  input[type="password"] {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-sizing: border-box; /* Ensures padding doesn't increase width */
-  }
-
   button {
     width: 100%;
-    padding: 10px;
-    background-color: #007bff;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background-color 0.2s;
+    margin-top: 0.5rem;
   }
-
-  button:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-  }
-
-  button:hover:not(:disabled) {
-    background-color: #0056b3;
-  }
-
-  .error-message {
-    color: #dc3545;
-    background-color: #f8d7da;
-    border: 1px solid #f5c6cb;
-    padding: 10px;
-    border-radius: 4px;
-    margin-bottom: 15px;
-    text-align: center;
+  .switch {
+    margin: 1.5rem 0 0;
   }
 </style>

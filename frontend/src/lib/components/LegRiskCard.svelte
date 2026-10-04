@@ -1,203 +1,120 @@
 <script lang="ts">
   import type { LegAssessment } from '$lib/api';
-
-  const props = $props<{
+  import { verdict, statusClass, departureLabel } from '$lib/commute';
+  let {
+    outboundLeg,
+    returnLeg,
+    unitSystem = 'imperial',
+    timezone = 'UTC'
+  }: {
     outboundLeg?: LegAssessment;
     returnLeg?: LegAssessment;
-    outbound_leg?: LegAssessment;
-    return_leg?: LegAssessment;
-  }>();
-
-  const outbound = $derived(props.outboundLeg || props.outbound_leg);
-  const returnL = $derived(props.returnLeg || props.return_leg);
-
-  function getStatusBadgeClass(status?: string): string {
-    if (status === 'Go') return 'badge-go';
-    if (status === 'Caution') return 'badge-caution';
-    if (status === 'No-Go') return 'badge-nogo';
-    return 'badge-default';
-  }
+    unitSystem?: string;
+    timezone?: string;
+  } = $props();
 </script>
 
-<div class="leg-risk-container" data-testid="leg-risk-card">
-  {#if outbound}
-    <div class="leg-card outbound-card">
-      <div class="leg-header">
-        <span class="leg-title">Outbound (Morning)</span>
-        <span class="status-pill {getStatusBadgeClass(outbound.status)}">{outbound.status}</span>
-      </div>
-      <div class="leg-details">
-        <div class="location-name">{outbound.location_name}</div>
-        <div class="departure-time">Departure: {outbound.schedule_time}</div>
-        <div class="score-display">
-          <span class="score-label">Safety Score:</span>
-          <span class="score-value">{outbound.score}</span>
-        </div>
-      </div>
-      {#if outbound.reasons && outbound.reasons.length > 0}
-        <div class="reasons-list">
-          <h4>Weather Considerations</h4>
-          <ul>
-            {#each outbound.reasons as reason}
-              <li class="reason-badge">{reason}</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  {#if returnL}
-    <div class="leg-card return-card">
-      <div class="leg-header">
-        <span class="leg-title">Return (Evening)</span>
-        <span class="status-pill {getStatusBadgeClass(returnL.status)}">{returnL.status}</span>
-      </div>
-      <div class="leg-details">
-        <div class="location-name">{returnL.location_name}</div>
-        <div class="departure-time">Departure: {returnL.schedule_time}</div>
-        <div class="score-display">
-          <span class="score-label">Safety Score:</span>
-          <span class="score-value">{returnL.score}</span>
-        </div>
-      </div>
-      {#if returnL.reasons && returnL.reasons.length > 0}
-        <div class="reasons-list">
-          <h4>Weather Considerations</h4>
-          <ul>
-            {#each returnL.reasons as reason}
-              <li class="reason-badge">{reason}</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-    </div>
-  {/if}
+<div class="legs" data-testid="leg-risk-card">
+  {#each [outboundLeg, returnLeg].filter(Boolean) as leg}
+    {#if leg}<section class="card leg">
+        <p class="eyebrow">{leg.leg_type === 'return' ? 'Heading back' : 'Heading out'}</p>
+        <h3>{departureLabel(leg.schedule_time, timezone)}</h3>
+        <p class="status {statusClass(leg.status)}">{verdict(leg.status)}</p>
+        <ul>
+          {#each leg.reasons as reason}<li>
+              {reason === 'Clear conditions' ? 'Within your weather limits' : reason}
+            </li>{/each}
+        </ul>
+        {#if leg.weather}<dl>
+            <div>
+              <dt>Feels like</dt>
+              <dd>{Math.round(leg.weather.apparent_temp)}°{unitSystem === 'metric' ? 'C' : 'F'}</dd>
+            </div>
+            <div>
+              <dt>Wind{leg.weather.wind_gusts != null ? ' / gusts' : ''}</dt>
+              <dd>
+                {Math.round(leg.weather.wind_speed)}{leg.weather.wind_gusts != null
+                  ? ` / ${Math.round(leg.weather.wind_gusts)}`
+                  : ''}
+                {unitSystem === 'metric' ? 'km/h' : 'mph'}
+              </dd>
+            </div>
+            <div>
+              <dt>Rain chance</dt>
+              <dd>{Math.round(leg.weather.precip_prob)}%</dd>
+            </div>
+          </dl>
+          <p class="muted sample-note">Weather at the most concerning checked location.</p>{/if}
+        {#if leg.waypoint_evaluations && leg.waypoint_evaluations.length > 2}<details>
+            <summary>Weather at your stops</summary>
+            <ul>
+              {#each leg.waypoint_evaluations as point}<li>
+                  <strong>{point.name}</strong> · {departureLabel(
+                    point.estimated_arrival_time,
+                    timezone
+                  )}<br />{verdict(point.status)}{point.status !== 'Go'
+                    ? `: ${point.reasons.join('; ')}`
+                    : ''}
+                </li>{/each}
+            </ul>
+          </details>{/if}
+      </section>{/if}
+  {/each}
 </div>
 
 <style>
-  .leg-risk-container {
+  .legs {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
-    margin: 16px 0;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+    gap: 1.25rem;
   }
-
-  .leg-card {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  .leg {
+    margin-bottom: 1rem;
   }
-
-  .leg-header {
+  h3 {
+    font-size: 1.2rem;
+    margin-bottom: 0.8rem;
+  }
+  .status {
+    font-weight: 700;
+  }
+  .go {
+    color: var(--status-go);
+  }
+  .caution {
+    color: var(--status-caution);
+  }
+  .nogo {
+    color: var(--status-nogo);
+  }
+  ul {
+    padding-left: 1.2rem;
+    min-height: 3rem;
+  }
+  li {
+    margin-bottom: 0.35rem;
+  }
+  dl {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    margin-bottom: 0.8rem;
+  }
+  dl div {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #f3f4f6;
+    gap: 0.8rem;
+    margin-bottom: 0.5rem;
   }
-
-  .leg-title {
-    font-weight: 600;
-    font-size: 1.1rem;
-    color: #111827;
+  dt {
+    color: var(--muted);
   }
-
-  .status-pill {
-    padding: 4px 12px;
-    border-radius: 9999px;
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-
-  .badge-go {
-    background-color: #d1fae5;
-    color: #065f46;
-    border: 1px solid #a7f3d0;
-  }
-
-  .badge-caution {
-    background-color: #fef3c7;
-    color: #92400e;
-    border: 1px solid #fde68a;
-  }
-
-  .badge-nogo {
-    background-color: #fee2e2;
-    color: #991b1b;
-    border: 1px solid #fca5a5;
-  }
-
-  .badge-default {
-    background-color: #f3f4f6;
-    color: #374151;
-  }
-
-  .leg-details {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-
-  .location-name {
-    font-weight: 500;
-    color: #374151;
-    font-size: 1rem;
-  }
-
-  .departure-time {
-    font-size: 0.9rem;
-    color: #6b7280;
-  }
-
-  .score-display {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font-weight: 600;
-  }
-
-  .score-label {
-    color: #4b5563;
-  }
-
-  .score-value {
-    color: #2563eb;
-    font-size: 1.1rem;
-  }
-
-  .reasons-list {
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px dashed #e5e7eb;
-  }
-
-  .reasons-list h4 {
-    font-size: 0.85rem;
-    color: #6b7280;
-    margin: 0 0 6px 0;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .reasons-list ul {
-    list-style: none;
-    padding: 0;
+  dd {
     margin: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    font-weight: 650;
+    text-align: right;
   }
-
-  .reason-badge {
-    background-color: #f3f4f6;
-    color: #374151;
-    padding: 3px 8px;
-    border-radius: 6px;
-    font-size: 0.825rem;
+  .sample-note {
+    font-size: 0.75rem;
+    margin: 0;
   }
 </style>
