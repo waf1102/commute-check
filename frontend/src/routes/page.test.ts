@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '$lib/api';
@@ -354,6 +354,136 @@ describe('Dashboard Page (+page.svelte)', () => {
       }));
 
       expect(await screen.findByText('Conditions improved for gym ride')).toBeInTheDocument();
+    });
+  });
+
+  describe('Loading & Error States', () => {
+    it('displays loading spinner and skeleton loader while weather forecast is fetching on mount', async () => {
+      let resolveForecast!: (val: any) => void;
+      const forecastPromise = new Promise((resolve) => {
+        resolveForecast = resolve;
+      });
+      (api.getWeatherForecast as any).mockReturnValue(forecastPromise);
+
+      render(Page, { data: mockPageData });
+
+      expect(screen.getByTestId('loading-indicator')).toBeInTheDocument();
+      expect(screen.getByText(/Loading weather forecast/i)).toBeInTheDocument();
+      expect(screen.getByTestId('skeleton-loader')).toBeInTheDocument();
+
+      resolveForecast(mockForecast);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('loading-indicator')).not.toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('skeleton-loader')).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Weather Visualizations/i })).toBeInTheDocument();
+    });
+
+    it('displays loading indicator and updates button state while assessing route on form submit', async () => {
+      (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+      let resolveCheck!: (val: any) => void;
+      const checkPromise = new Promise((resolve) => {
+        resolveCheck = resolve;
+      });
+      (api.checkRoute as any).mockReturnValue(checkPromise);
+
+      render(Page, { data: mockPageData });
+
+      await screen.findByRole('heading', { name: /Weather Visualizations/i });
+
+      const submitBtn = screen.getByTestId('update-route-btn');
+      expect(submitBtn).not.toBeDisabled();
+
+      await fireEvent.click(submitBtn);
+
+      expect(screen.getByTestId('loading-indicator')).toBeInTheDocument();
+      expect(screen.getByText(/Assessing route and updating forecast/i)).toBeInTheDocument();
+      expect(submitBtn).toBeDisabled();
+      expect(submitBtn).toHaveTextContent(/Updating Route/i);
+
+      resolveCheck({
+        status: 'Go',
+        score: 95,
+        recommendation: 'Conditions clear',
+        details: { temperature: 68, wind_speed: 5, precip_prob: 0 }
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('loading-indicator')).not.toBeInTheDocument();
+      });
+      expect(submitBtn).not.toBeDisabled();
+      expect(submitBtn).toHaveTextContent(/Update Route Forecast/i);
+    });
+
+    it('renders error banner with retry button when getWeatherForecast fails and retries successfully', async () => {
+      (api.getWeatherForecast as any).mockRejectedValueOnce(new Error('Network connection failed'));
+
+      render(Page, { data: mockPageData });
+
+      const errorBanner = await screen.findByTestId('error-banner');
+      expect(errorBanner).toBeInTheDocument();
+      expect(within(errorBanner).getByText(/Network connection failed/i)).toBeInTheDocument();
+
+      const retryBtn = screen.getByTestId('retry-btn');
+      expect(retryBtn).toBeInTheDocument();
+
+      (api.getWeatherForecast as any).mockResolvedValueOnce(mockForecast);
+
+      await fireEvent.click(retryBtn);
+
+      expect(api.getWeatherForecast).toHaveBeenCalledTimes(2);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('error-banner')).not.toBeInTheDocument();
+      });
+      expect(await screen.findByRole('heading', { name: /Weather Visualizations/i })).toBeInTheDocument();
+    });
+
+    it('renders error banner when checkRoute fails during route update and retries successfully', async () => {
+      (api.getWeatherForecast as any).mockResolvedValue(mockForecast);
+      (api.checkRoute as any).mockRejectedValueOnce(new Error('Route service timeout'));
+
+      render(Page, { data: mockPageData });
+
+      await screen.findByRole('heading', { name: /Weather Visualizations/i });
+
+      await fireEvent.click(screen.getByTestId('update-route-btn'));
+
+      const errorBanner = await screen.findByTestId('error-banner');
+      expect(errorBanner).toBeInTheDocument();
+      expect(within(errorBanner).getByText(/Route service timeout/i)).toBeInTheDocument();
+
+      const retryBtn = screen.getByTestId('retry-btn');
+      expect(retryBtn).toBeInTheDocument();
+
+      (api.checkRoute as any).mockResolvedValueOnce({
+        status: 'Go',
+        score: 90,
+        recommendation: 'Retry successful',
+        details: { temperature: 65, wind_speed: 10, precip_prob: 0 }
+      });
+
+      await fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('error-banner')).not.toBeInTheDocument();
+      });
+      expect(await screen.findByText('Retry successful')).toBeInTheDocument();
+    });
+
+    it('allows dismissing the error banner via dismiss button', async () => {
+      (api.getWeatherForecast as any).mockRejectedValueOnce(new Error('Temporary glitch'));
+
+      render(Page, { data: mockPageData });
+
+      const errorBanner = await screen.findByTestId('error-banner');
+      expect(errorBanner).toBeInTheDocument();
+
+      const dismissBtn = screen.getByTestId('dismiss-btn');
+      await fireEvent.click(dismissBtn);
+
+      expect(screen.queryByTestId('error-banner')).not.toBeInTheDocument();
     });
   });
 });
