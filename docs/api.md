@@ -1,4 +1,4 @@
-# Commute Check API Reference
+# Commute Check API Reference (v2.0)
 
 The Commute Check backend provides a RESTful HTTP API built with FastAPI. All JSON responses use standard camelCase or snake_case models as documented below.
 
@@ -42,12 +42,12 @@ Authenticate and obtain a JWT bearer token.
 
 ---
 
-## 2. Commute Configuration & Management
+## 2. Commute Configuration & Waypoint Management
 
 Authentication required (`Authorization: Bearer <token>`).
 
 ### `GET /config` or `GET /api/config`
-Retrieve all configured commutes for the authenticated user.
+Retrieve all configured commutes for the authenticated user, including intermediate route waypoints.
 
 - **Response (`200 OK`)**: Array of `Commute` objects.
   ```json
@@ -61,9 +61,17 @@ Retrieve all configured commutes for the authenticated user.
       "dest_name": "Downtown HQ",
       "dest_lat": 37.7891,
       "dest_lon": -122.4014,
+      "waypoints": [
+        {
+          "name": "Bay Bridge Overpass",
+          "lat": 37.7983,
+          "lon": -122.3778,
+          "order": 1
+        }
+      ],
       "schedule_time": "08:00",
       "return_schedule_time": "17:30",
-      "days_of_week": "mon-fri",
+      "days_of_week": "mon,wed,thu",
       "min_temp_caution": 45.0,
       "min_temp_no_go": 38.0,
       "max_wind_caution": 18.0,
@@ -76,7 +84,7 @@ Retrieve all configured commutes for the authenticated user.
   ```
 
 ### `POST /config` or `POST /api/config`
-Create a new commute or update an existing commute configuration.
+Create a new commute or update an existing commute configuration with intermediate waypoints.
 
 - **Request Body**: `Commute` schema (include `id` to update).
 - **Response (`200 OK`)**: Created or updated `Commute` object.
@@ -97,12 +105,57 @@ Send a test assessment notification to the webhook URL specified in the payload.
 
 ---
 
-## 3. Route Check & Weather Assessments
+## 3. Route Directions & Polylines
+
+### `POST /api/route/directions`
+Fetch route polyline geometry, total distance, total duration, and leg breakdowns between waypoints via OSRM (with haversine fallback).
+
+- **Request Body**:
+  ```json
+  {
+    "origin": { "lat": 37.7749, "lon": -122.4194, "name": "Home" },
+    "destination": { "lat": 37.7891, "lon": -122.4014, "name": "Office" },
+    "waypoints": [
+      { "lat": 37.7983, "lon": -122.3778, "name": "Bridge", "order": 1 }
+    ]
+  }
+  ```
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "coordinates": [
+      [-122.4194, 37.7749],
+      [-122.3778, 37.7983],
+      [-122.4014, 37.7891]
+    ],
+    "distance_meters": 14250.0,
+    "duration_seconds": 1380.0,
+    "legs": [
+      {
+        "from_index": 0,
+        "to_index": 1,
+        "distance_meters": 7100.0,
+        "duration_seconds": 680.0
+      },
+      {
+        "from_index": 1,
+        "to_index": 2,
+        "distance_meters": 7150.0,
+        "duration_seconds": 700.0
+      }
+    ],
+    "fallback_used": false
+  }
+  ```
+
+---
+
+## 4. Route Safety Check & Hazard Assessments
 
 ### `POST /check` or `POST /api/check`
-Run a real-time safety assessment across origin and destination legs.
+Run an along-the-route safety evaluation across origin, intermediate waypoints, and destination legs with time-interpolated weather matching.
 
-- **Request Body** (optional if parameters passed as query):
+- **Request Body**:
   ```json
   {
     "commute_id": 1,
@@ -111,6 +164,9 @@ Run a real-time safety assessment across origin and destination legs.
     "dest_name": "Downtown HQ",
     "dest_lat": 37.7891,
     "dest_lon": -122.4014,
+    "waypoints": [
+      { "lat": 37.7983, "lon": -122.3778, "name": "Summit Pass", "order": 1 }
+    ],
     "schedule_time": "08:00",
     "return_schedule_time": "17:30",
     "unit_system": "imperial"
@@ -119,47 +175,66 @@ Run a real-time safety assessment across origin and destination legs.
 - **Response (`200 OK`)**:
   ```json
   {
-    "overall_status": "Go",
-    "overall_score": 85,
+    "overall_status": "Caution",
+    "overall_score": 75,
     "outbound_leg": {
       "leg_type": "outbound",
       "location_name": "Origin",
       "schedule_time": "08:00",
-      "status": "Go",
-      "score": 90,
-      "reasons": [],
-      "weather": {
-        "temperature": 58.2,
-        "apparent_temp": 58.0,
-        "wind_speed": 7.5,
-        "wind_gusts": 10.2,
-        "precip_prob": 5.0,
-        "weather_code": 1
-      }
+      "status": "Caution",
+      "score": 75,
+      "reasons": ["Wind gusts above 25 mph expected near Summit Pass"],
+      "weather": { ... },
+      "segments": [
+        {
+          "segment_index": 0,
+          "name": "Origin to Summit Pass",
+          "estimated_arrival": "08:12",
+          "status": "Caution",
+          "reasons": ["High wind gusts (27.5 mph)"],
+          "weather": { ... }
+        },
+        {
+          "segment_index": 1,
+          "name": "Summit Pass to Downtown HQ",
+          "estimated_arrival": "08:25",
+          "status": "Go",
+          "reasons": [],
+          "weather": { ... }
+        }
+      ],
+      "hazard_pinpoints": [
+        {
+          "lat": 37.7983,
+          "lon": -122.3778,
+          "location_name": "Summit Pass",
+          "estimated_time": "08:12",
+          "parameter": "wind_gusts",
+          "value": 27.5,
+          "threshold": 25.0,
+          "severity": "caution",
+          "message": "High wind gusts (27.5 mph) near Summit Pass at ~08:12"
+        }
+      ]
     },
     "return_leg": {
       "leg_type": "return",
       "location_name": "Downtown HQ",
       "schedule_time": "17:30",
-      "status": "Caution",
-      "score": 75,
-      "reasons": ["Wind gusts above 20 mph expected"],
-      "weather": {
-        "temperature": 62.0,
-        "apparent_temp": 61.5,
-        "wind_speed": 14.0,
-        "wind_gusts": 22.0,
-        "precip_prob": 15.0,
-        "weather_code": 2
-      }
+      "status": "Go",
+      "score": 90,
+      "reasons": [],
+      "weather": { ... },
+      "segments": [ ... ],
+      "hazard_pinpoints": []
     },
-    "recommendation": "Conditions acceptable for morning commute; caution advised on evening return due to wind gusts."
+    "recommendation": "Caution advised on morning commute: high wind gusts expected near Summit Pass at approximately 08:12."
   }
   ```
 
 ---
 
-## 4. Weather Visualizations & Timeline
+## 5. Weather Visualizations & Timeline
 
 ### `GET /weather/forecast`
 Retrieve hourly forecasts and configured thresholds for dashboard chart rendering.
@@ -187,7 +262,7 @@ Retrieve hourly forecasts and configured thresholds for dashboard chart renderin
 
 ---
 
-## 5. Web Push Notifications
+## 6. Web Push Notifications
 
 Authentication required (`Authorization: Bearer <token>`).
 
@@ -197,85 +272,27 @@ Retrieve the server's VAPID public key in Base64Url format.
 ### `POST /push/subscribe`
 Register a browser push subscription for the logged-in user.
 
-- **Request Body**:
-  ```json
-  {
-    "endpoint": "https://fcm.googleapis.com/fcm/send/...",
-    "keys": {
-      "p256dh": "BLba4...",
-      "auth": "8u3..."
-    },
-    "user_agent": "Mozilla/5.0..."
-  }
-  ```
-
 ### `DELETE /push/unsubscribe`
 Remove an existing push subscription.
 
 ### `POST /push/test`
-Send an instant test notification to all registered subscriptions for the authenticated user.
+Send an instant test notification to all registered subscriptions for the authenticated user, supporting mid-route hazard payloads.
 
 ---
 
-## 6. History & Analytics
+## 7. History & Analytics
 
 Authentication required (`Authorization: Bearer <token>`).
 
 ### `GET /analytics/commute-stats/daily`
 Retrieve daily aggregated riding statistics and assessment logs within a date range.
 
-- **Query Parameters**:
-  - `user_id` (`int`, required): Must match authenticated user ID.
-  - `start_date` (`YYYY-MM-DD`, required): Start of report period.
-  - `end_date` (`YYYY-MM-DD`, required): End of report period.
-- **Response (`200 OK`)**: Array of `DailyCommuteStats` objects:
-  ```json
-  [
-    {
-      "date": "2026-10-01",
-      "days_ridden": 1,
-      "days_driven": 0,
-      "days_total": 1,
-      "avg_score": 88.5
-    }
-  ]
-  ```
-
-### `POST /analytics/record-decision` (also `/api/analytics/record-decision`)
+### `POST /analytics/record-decision`
 Record or update whether the user rode or drove for their commute.
-
-- **Request Body**: `DecisionRecordRequest` schema:
-  ```json
-  {
-    "commute_id": 1,
-    "decision": "riding",
-    "commute_distance_km": 15.0,
-    "duration_minutes": 30.0,
-    "assessment_history_id": 42,
-    "notes": "Clear morning ride"
-  }
-  ```
-- **Response (`200 OK`)**: `DecisionRecordResponse` schema:
-  ```json
-  {
-    "id": 42,
-    "user_id": 1,
-    "commute_id": 1,
-    "commute_type": "riding",
-    "timestamp": "2026-10-01T12:00:00Z",
-    "leg_type": "outbound",
-    "overall_status": "Go",
-    "overall_score": 88.5,
-    "commute_distance_km": 15.0,
-    "duration_minutes": 30.0,
-    "created_at": "2026-10-01T12:00:00Z"
-  }
-  ```
 
 ---
 
-
-## 7. System Health
+## 8. System Health
 
 ### `GET /health`
 Liveness probe.

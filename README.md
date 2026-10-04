@@ -8,6 +8,10 @@
 
 - **Automated Weather Assessments**: Real-time evaluations powered by the Open-Meteo API.
 - **Customizable Safety Thresholds**: Tailor temperature cutoffs, maximum wind speeds/gusts, and precipitation limits to your equipment and riding comfort.
+- **Along-the-Route Weather & Waypoints (v2.0)**: Multi-waypoint route evaluation with time-interpolated weather matching and localized hazard pinpoint detection.
+- **Interactive Route Map Visualizer (v2.0)**: Embedded Leaflet visualizer featuring color-coded safety polylines (Green: Go, Amber: Caution, Red: No-Go), waypoint sequence markers, and interactive hazard alerts.
+- **Enhanced Mid-Route Hazard Notifications (v2.0)**: Web Push and Apprise alerts specifying the exact waypoint location, hazard condition, and estimated encounter time.
+- **Hybrid Commuter Scheduling (v1.5)**: Interactive day-of-week schedule selector with quick presets for flexible work-from-home schedules.
 - **Multi-Route & Destination Weather (v1.4)**: Independent evaluations for Outbound and Return commute legs with distinct coordinates and departure times.
 - **Rich Weather Visualizations (v1.3)**: Interactive Chart.js timeline with dual Y-axes (temperature/wind speed vs. rain probability) and real-time risk gauge cards.
 - **Progressive Web App (PWA) & Native Web Push (v1.3)**: Installable on iOS/Android/Desktop with offline forecast caching and direct VAPID-authenticated browser push notifications.
@@ -21,8 +25,8 @@
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Python 3.11+, FastAPI, SQLModel (SQLAlchemy 2.0 / Pydantic v2), APScheduler, SQLite.
-- **Frontend**: SvelteKit 2, Svelte 5 (Runes), TypeScript, Chart.js, Service Worker PWA.
+- **Backend**: Python 3.11+, FastAPI, SQLModel (SQLAlchemy 2.0 / Pydantic v2), APScheduler, OSRM Routing, SQLite.
+- **Frontend**: SvelteKit 2, Svelte 5 (Runes), TypeScript, Leaflet, Chart.js, Service Worker PWA.
 - **Notifications**: PyWebPush (VAPID) and Apprise.
 - **Weather Source**: Open-Meteo API.
 - **Infrastructure**: Docker & Docker Compose.
@@ -131,6 +135,8 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 - [x] **v1.2: Multi-User & Analytics** (JWT authentication, user-isolated commutes, decision history & analytics).
 - [x] **v1.3: Visualizations & PWA** (Interactive Chart.js timeline, risk gauges, installable PWA, VAPID Web Push).
 - [x] **v1.4: Multi-Route & Destination Weather** (Origin & destination coordinates, dual-leg outbound/return schedules, leg risk cards).
+- [x] **v1.5: Hybrid Commuter Scheduling** (Interactive day-of-week schedule selector with discrete weekday/hybrid presets).
+- [x] **v2.0: Interactive Route Waypoints & Along-the-Route Weather** (Multi-waypoint OSRM routing with haversine fallback, time-interpolated weather sampling across segments, interactive Leaflet route map visualizer with color-coded safety polylines, and mid-route hazard notifications).
 
 ---
 
