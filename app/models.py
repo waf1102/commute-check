@@ -220,12 +220,14 @@ class RouteAssessmentResult(BaseModel):
 
 
 class AssessmentRequest(BaseModel):
+    model_config = {"extra": "allow"}
+
     lat: Optional[float] = None
     lon: Optional[float] = None
     dest_lat: Optional[float] = None
     dest_lon: Optional[float] = None
     dest_name: Optional[str] = None
-    departure_time: Optional[str] = "08:00"
+    departure_time: Optional[str] = None
     schedule_time: Optional[str] = None
     waypoints: Optional[List[Any]] = None
     min_temp_caution: float = 45.0
@@ -234,6 +236,87 @@ class AssessmentRequest(BaseModel):
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
+    min_temp: Optional[float] = None
+    max_temp: Optional[float] = None
+    max_wind: Optional[float] = None
+    max_precip: Optional[float] = None
+
+    def __init__(self, **data):
+        if "schedule_time" in data and ("departure_time" not in data or data["departure_time"] is None):
+            data["departure_time"] = data["schedule_time"]
+        elif "departure_time" in data and ("schedule_time" not in data or data["schedule_time"] is None):
+            data["schedule_time"] = data["departure_time"]
+        elif "departure_time" not in data and "schedule_time" not in data:
+            data["departure_time"] = "08:00"
+            data["schedule_time"] = "08:00"
+
+        if "min_temp" in data and data["min_temp"] is not None:
+            if "min_temp_caution" not in data:
+                data["min_temp_caution"] = float(data["min_temp"])
+            if "min_temp_no_go" not in data:
+                data["min_temp_no_go"] = float(data["min_temp"]) - 7.0
+        if "max_wind" in data and data["max_wind"] is not None:
+            if "max_wind_caution" not in data:
+                data["max_wind_caution"] = float(data["max_wind"])
+            if "max_wind_no_go" not in data:
+                data["max_wind_no_go"] = float(data["max_wind"]) + 10.0
+        if "max_precip" in data and data["max_precip"] is not None:
+            if "rain_threshold" not in data:
+                data["rain_threshold"] = float(data["max_precip"])
+
+        super().__init__(**data)
+
+
+class RouteCheckRequest(BaseModel):
+    model_config = {"extra": "allow"}
+
+    commute_id: Optional[int] = None
+    name: Optional[str] = "Default Commute"
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    dest_lat: Optional[float] = None
+    dest_lon: Optional[float] = None
+    dest_name: Optional[str] = None
+    schedule_time: Optional[str] = None
+    departure_time: Optional[str] = None
+    return_schedule_time: Optional[str] = "17:00"
+    days_of_week: Optional[str] = "mon-fri"
+    unit_system: Optional[UnitSystem] = UnitSystem.IMPERIAL
+    waypoints: Optional[List[Any]] = None
+    min_temp_caution: float = 45.0
+    min_temp_no_go: float = 38.0
+    max_wind_caution: float = 15.0
+    max_wind_no_go: float = 25.0
+    rain_threshold: float = 30.0
+    min_temp: Optional[float] = None
+    max_temp: Optional[float] = None
+    max_wind: Optional[float] = None
+    max_precip: Optional[float] = None
+    webhook_url: Optional[str] = None
+    save_history: Optional[bool] = False
+
+    def __init__(self, **data):
+        if "schedule_time" in data and ("departure_time" not in data or data["departure_time"] is None):
+            data["departure_time"] = data["schedule_time"]
+        elif "departure_time" in data and ("schedule_time" not in data or data["schedule_time"] is None):
+            data["schedule_time"] = data["departure_time"]
+
+        if "min_temp" in data and data["min_temp"] is not None:
+            if "min_temp_caution" not in data or data["min_temp_caution"] is None:
+                data["min_temp_caution"] = float(data["min_temp"])
+            if "min_temp_no_go" not in data or data["min_temp_no_go"] is None:
+                data["min_temp_no_go"] = float(data["min_temp"]) - 7.0
+        if "max_wind" in data and data["max_wind"] is not None:
+            if "max_wind_caution" not in data or data["max_wind_caution"] is None:
+                data["max_wind_caution"] = float(data["max_wind"])
+            if "max_wind_no_go" not in data or data["max_wind_no_go"] is None:
+                data["max_wind_no_go"] = float(data["max_wind"]) + 10.0
+        if "max_precip" in data and data["max_precip"] is not None:
+            if "rain_threshold" not in data or data["rain_threshold"] is None:
+                data["rain_threshold"] = float(data["max_precip"])
+
+        super().__init__(**data)
+
 
 
 DAY_NAME_MAP = {
@@ -329,13 +412,47 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
         raise ValueError("waypoints must be a list")
 
     parsed = []
-    for item in v:
+    for i, item in enumerate(v):
         if isinstance(item, Waypoint):
             parsed.append(item)
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            parsed.append(Waypoint(
+                lat=float(item[0]),
+                lon=float(item[1]),
+                name=f"Waypoint {i+1}",
+                order=i,
+            ))
         elif isinstance(item, dict):
-            parsed.append(Waypoint(**item))
+            lat = item.get("lat") if "lat" in item else item.get("latitude")
+            lon = item.get("lon") if "lon" in item else (item.get("lng") if "lng" in item else item.get("longitude"))
+            if lat is None or lon is None:
+                raise ValueError(f"Coordinate dict must contain lat/lon: {item}")
+            parsed.append(Waypoint(
+                lat=float(lat),
+                lon=float(lon),
+                name=str(item.get("name", f"Waypoint {i+1}")),
+                order=int(item.get("order", i)),
+            ))
         elif hasattr(item, "model_dump"):
-            parsed.append(Waypoint(**item.model_dump()))
+            data = item.model_dump()
+            lat = data.get("lat") if "lat" in data else data.get("latitude")
+            lon = data.get("lon") if "lon" in data else (data.get("lng") if "lng" in data else data.get("longitude"))
+            if lat is not None and lon is not None:
+                parsed.append(Waypoint(
+                    lat=float(lat),
+                    lon=float(lon),
+                    name=str(data.get("name", f"Waypoint {i+1}")),
+                    order=int(data.get("order", i)),
+                ))
+            else:
+                raise ValueError(f"Invalid waypoint item: {item}")
+        elif hasattr(item, "lat") and hasattr(item, "lon"):
+            parsed.append(Waypoint(
+                lat=float(item.lat),
+                lon=float(item.lon),
+                name=str(getattr(item, "name", f"Waypoint {i+1}")),
+                order=int(getattr(item, "order", i)),
+            ))
         else:
             raise ValueError(f"Invalid waypoint item: {item}")
     return sorted(parsed, key=lambda wp: wp.order)

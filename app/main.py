@@ -2,7 +2,7 @@ from app import client as app_client
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
-from typing import List, Optional, Tuple, Any, AsyncGenerator
+from typing import List, Optional, Tuple, Any, AsyncGenerator, Union, Dict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from contextlib import asynccontextmanager
@@ -12,18 +12,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-from .models import Commute, CommuteCreate, AssessmentResult, RouteAssessmentResult, UnitSystem, User, AssessmentRequest
+from .models import (
+    Commute,
+    CommuteCreate,
+    AssessmentResult,
+    RouteAssessmentResult,
+    UnitSystem,
+    User,
+    AssessmentRequest,
+    RouteCheckRequest,
+)
 from .engine import AssessmentEngine
 from .client import WeatherClient
 from .notifications import NotificationService
 from .database import engine, get_session, create_db_and_tables
-from .security import router as auth_router, get_current_user
+from .security import router as auth_router, get_current_user, get_current_user_optional
 from .analytics.routes import router as analytics_router
 from .analytics.service import record_assessment_run, log_assessment_run
 from .weather.routes import router as weather_router
 from .push.routes import router as push_router
 from .notifications import NotificationService, dispatch_web_push_notification
-from .routing import routing_service, RoutingService, RouteDirectionsRequest, RouteDirectionsResponse
+from .routing import (
+    routing_service,
+    RoutingService,
+    RouteDirectionsRequest,
+    RouteDirectionsResponse,
+    parse_coordinate,
+)
 
 # --- Scheduler Setup ---
 JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
@@ -234,6 +249,7 @@ app.include_router(auth_router)
 app.include_router(analytics_router)
 app.include_router(analytics_router, prefix="/api")
 app.include_router(weather_router)
+app.include_router(weather_router, prefix="/api")
 app.include_router(push_router)
 app.include_router(push_router, prefix="/api")
 
@@ -335,15 +351,17 @@ async def assess_weather_post(request: AssessmentRequest):
 
         if waypoints_raw:
             for i, w in enumerate(waypoints_raw):
-                if isinstance(w, (list, tuple)):
-                    coords.append((float(w[0]), float(w[1])))
-                    waypoint_names.append(f"Waypoint {i+1}")
-                elif isinstance(w, dict):
-                    coords.append((float(w["lat"]), float(w["lon"])))
-                    waypoint_names.append(w.get("name", f"Waypoint {i+1}"))
-                elif hasattr(w, "lat") and hasattr(w, "lon"):
-                    coords.append((float(w.lat), float(w.lon)))
-                    waypoint_names.append(getattr(w, "name", f"Waypoint {i+1}"))
+                try:
+                    w_lat, w_lon = parse_coordinate(w)
+                    coords.append((w_lat, w_lon))
+                    w_name = ""
+                    if isinstance(w, dict):
+                        w_name = w.get("name", "")
+                    elif hasattr(w, "name"):
+                        w_name = getattr(w, "name", "")
+                    waypoint_names.append(w_name or f"Waypoint {i+1}")
+                except Exception as e:
+                    print(f"Error parsing waypoint {w}: {e}")
 
         if thresholds.dest_lat is not None and thresholds.dest_lon is not None:
             coords.append((thresholds.dest_lat, thresholds.dest_lon))
@@ -385,40 +403,86 @@ async def assess_weather_post(request: AssessmentRequest):
 
 
 @app.get("/assess", response_model=AssessmentResult)
+@app.get("/api/assess", response_model=AssessmentResult)
 async def assess_weather(
-    lat: float, 
-    lon: float, 
-    min_temp: float = 45.0, 
-    max_temp: float = 95.0, 
-    max_wind: float = 15.0, 
-    max_precip: float = 30.0,
-    unit_system: UnitSystem = UnitSystem.IMPERIAL
+    lat: Optional[float] = Query(default=None),
+    lon: Optional[float] = Query(default=None),
+    dest_lat: Optional[float] = Query(default=None),
+    dest_lon: Optional[float] = Query(default=None),
+    dest_name: Optional[str] = Query(default=None),
+    schedule_time: Optional[str] = Query(default=None),
+    departure_time: Optional[str] = Query(default=None),
+    min_temp: Optional[float] = Query(default=45.0),
+    min_temp_caution: Optional[float] = Query(default=None),
+    min_temp_no_go: Optional[float] = Query(default=None),
+    max_temp: Optional[float] = Query(default=95.0),
+    max_wind: Optional[float] = Query(default=15.0),
+    max_wind_caution: Optional[float] = Query(default=None),
+    max_wind_no_go: Optional[float] = Query(default=None),
+    max_precip: Optional[float] = Query(default=30.0),
+    rain_threshold: Optional[float] = Query(default=None),
+    unit_system: UnitSystem = Query(default=UnitSystem.IMPERIAL),
+    commute_id: Optional[int] = Query(default=None),
+    session: Session = Depends(get_session),
+    user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    Manually assess weather for given coordinates and thresholds.
+    Manually assess weather for given coordinates, destinations, and thresholds via GET.
     """
-    try:
-        weather = await client_instance.get_hourly_weather(lat, lon, unit_system)
-    except Exception as e:
-        print(f"Weather API error: {e}")
-        raise HTTPException(status_code=503, detail="Weather API is currently unavailable")
-    
-    # Create a temporary Commute object to hold thresholds for the assessment engine.
-    # We use some heuristic mapping for the 'no_go' thresholds based on caution inputs.
-    thresholds = Commute(
+    if lat is None or lon is None:
+        if commute_id:
+            commute = session.get(Commute, commute_id)
+            if commute and (user is None or commute.user_id == user.id):
+                lat = commute.lat
+                lon = commute.lon
+                if dest_lat is None:
+                    dest_lat = commute.dest_lat
+                if dest_lon is None:
+                    dest_lon = commute.dest_lon
+                if dest_name is None:
+                    dest_name = commute.dest_name
+                if schedule_time is None:
+                    schedule_time = commute.schedule_time
+        elif user:
+            commute = session.exec(select(Commute).where(Commute.user_id == user.id)).first()
+            if commute:
+                lat = commute.lat
+                lon = commute.lon
+                if dest_lat is None:
+                    dest_lat = commute.dest_lat
+                if dest_lon is None:
+                    dest_lon = commute.dest_lon
+                if dest_name is None:
+                    dest_name = commute.dest_name
+                if schedule_time is None:
+                    schedule_time = commute.schedule_time
+
+    if lat is None or lon is None:
+        raise HTTPException(status_code=400, detail="Latitude and longitude are required")
+
+    effective_min_caution = min_temp_caution if min_temp_caution is not None else min_temp
+    effective_min_no_go = min_temp_no_go if min_temp_no_go is not None else (effective_min_caution - 7.0)
+    effective_wind_caution = max_wind_caution if max_wind_caution is not None else max_wind
+    effective_wind_no_go = max_wind_no_go if max_wind_no_go is not None else (effective_wind_caution + 10.0)
+    effective_rain = rain_threshold if rain_threshold is not None else max_precip
+    effective_dep_time = departure_time or schedule_time or "08:00"
+
+    req = AssessmentRequest(
         lat=lat,
         lon=lon,
-        schedule_time="08:00", # Dummy schedule
-        min_temp_caution=min_temp,
-        min_temp_no_go=min_temp - 7.0,
-        max_wind_caution=max_wind,
-        max_wind_no_go=max_wind + 10.0,
-        rain_threshold=max_precip,
-        unit_system=unit_system
+        dest_lat=dest_lat,
+        dest_lon=dest_lon,
+        dest_name=dest_name,
+        departure_time=effective_dep_time,
+        schedule_time=effective_dep_time,
+        min_temp_caution=effective_min_caution,
+        min_temp_no_go=effective_min_no_go,
+        max_wind_caution=effective_wind_caution,
+        max_wind_no_go=effective_wind_no_go,
+        rain_threshold=effective_rain,
+        unit_system=unit_system,
     )
-    
-    assessment = engine_instance.assess(weather, thresholds)
-    return assessment
+    return await assess_weather_post(req)
 
 @app.post("/test-webhook", response_model=AssessmentResult)
 @app.post("/api/test-webhook", response_model=AssessmentResult)
@@ -477,45 +541,103 @@ def delete_commute_route(commute_id: int, session: Session = Depends(get_session
     return delete_config(commute_id, session, user)
 
 # --- Route Check Endpoints ---
-@app.post("/check", response_model=RouteAssessmentResult)
-@app.post("/api/check", response_model=RouteAssessmentResult)
-@app.get("/check", response_model=RouteAssessmentResult)
-@app.get("/api/check", response_model=RouteAssessmentResult)
-async def check_route(
-    commute_data: Optional[CommuteCreate] = None,
-    commute_id: Optional[int] = Query(default=None),
-    lat: Optional[float] = Query(default=None),
-    lon: Optional[float] = Query(default=None),
-    dest_lat: Optional[float] = Query(default=None),
-    dest_lon: Optional[float] = Query(default=None),
-    dest_name: Optional[str] = Query(default=None),
-    schedule_time: Optional[str] = Query(default=None),
-    return_schedule_time: Optional[str] = Query(default=None),
-    unit_system: UnitSystem = Query(default=UnitSystem.IMPERIAL),
-    save_history: bool = Query(default=False),
+async def execute_route_check(
+    commute_data: Optional[Union[RouteCheckRequest, CommuteCreate, Dict[str, Any]]] = None,
+    commute_id: Optional[int] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    dest_lat: Optional[float] = None,
+    dest_lon: Optional[float] = None,
+    dest_name: Optional[str] = None,
+    schedule_time: Optional[str] = None,
+    departure_time: Optional[str] = None,
+    return_schedule_time: Optional[str] = None,
+    unit_system: Optional[UnitSystem] = UnitSystem.IMPERIAL,
+    save_history: bool = False,
     session: Session = Depends(get_session),
-    user: Optional[User] = Depends(get_current_user),
-):
-    commute = None
+    user: Optional[User] = Depends(get_current_user_optional),
+) -> RouteAssessmentResult:
+    # Extract from commute_data if provided
     if commute_data:
-        commute = Commute.model_validate(commute_data)
-        if user:
-            commute.user_id = user.id
-    elif commute_id:
+        if commute_id is None and getattr(commute_data, "commute_id", None) is not None:
+            commute_id = commute_data.commute_id
+        if lat is None and getattr(commute_data, "lat", None) is not None:
+            lat = commute_data.lat
+        if lon is None and getattr(commute_data, "lon", None) is not None:
+            lon = commute_data.lon
+        if dest_lat is None and getattr(commute_data, "dest_lat", None) is not None:
+            dest_lat = commute_data.dest_lat
+        if dest_lon is None and getattr(commute_data, "dest_lon", None) is not None:
+            dest_lon = commute_data.dest_lon
+        if dest_name is None and getattr(commute_data, "dest_name", None) is not None:
+            dest_name = commute_data.dest_name
+        if schedule_time is None:
+            schedule_time = getattr(commute_data, "schedule_time", None) or getattr(commute_data, "departure_time", None)
+        if departure_time is None:
+            departure_time = getattr(commute_data, "departure_time", None) or getattr(commute_data, "schedule_time", None)
+        if return_schedule_time is None:
+            return_schedule_time = getattr(commute_data, "return_schedule_time", None)
+        if unit_system is None or unit_system == UnitSystem.IMPERIAL:
+            if getattr(commute_data, "unit_system", None):
+                unit_system = commute_data.unit_system
+        if not save_history and getattr(commute_data, "save_history", False):
+            save_history = commute_data.save_history
+
+    commute = None
+    if commute_id:
         commute = session.get(Commute, commute_id)
         if not commute or (user and commute.user_id != user.id):
             raise HTTPException(status_code=404, detail="Commute not found or not authorized")
     elif lat is not None and lon is not None:
+        min_c = getattr(commute_data, "min_temp_caution", None) if commute_data else None
+        if min_c is None:
+            min_c = getattr(commute_data, "min_temp", None) if commute_data else None
+        if min_c is None:
+            min_c = 45.0
+
+        min_ng = getattr(commute_data, "min_temp_no_go", None) if commute_data else None
+        if min_ng is None:
+            min_ng = min_c - 7.0
+
+        max_wc = getattr(commute_data, "max_wind_caution", None) if commute_data else None
+        if max_wc is None:
+            max_wc = getattr(commute_data, "max_wind", None) if commute_data else None
+        if max_wc is None:
+            max_wc = 15.0
+
+        max_wng = getattr(commute_data, "max_wind_no_go", None) if commute_data else None
+        if max_wng is None:
+            max_wng = max_wc + 10.0
+
+        rain_th = getattr(commute_data, "rain_threshold", None) if commute_data else None
+        if rain_th is None:
+            rain_th = getattr(commute_data, "max_precip", None) if commute_data else None
+        if rain_th is None:
+            rain_th = 30.0
+
+        name = getattr(commute_data, "name", "Default Commute") if commute_data else "Default Commute"
+
+        effective_sched = schedule_time or departure_time or "08:00"
+        effective_ret = return_schedule_time or "17:00"
+
         commute = Commute(
-            lat=lat,
-            lon=lon,
+            name=name,
+            lat=float(lat),
+            lon=float(lon),
             dest_name=dest_name,
-            dest_lat=dest_lat,
-            dest_lon=dest_lon,
-            schedule_time=schedule_time or "08:00",
-            return_schedule_time=return_schedule_time or "17:00",
-            unit_system=unit_system
+            dest_lat=float(dest_lat) if dest_lat is not None else None,
+            dest_lon=float(dest_lon) if dest_lon is not None else None,
+            schedule_time=effective_sched,
+            return_schedule_time=effective_ret,
+            unit_system=unit_system or UnitSystem.IMPERIAL,
+            min_temp_caution=float(min_c),
+            min_temp_no_go=float(min_ng),
+            max_wind_caution=float(max_wc),
+            max_wind_no_go=float(max_wng),
+            rain_threshold=float(rain_th),
         )
+        if user:
+            commute.user_id = user.id
     elif user:
         commute = session.exec(select(Commute).where(Commute.user_id == user.id)).first()
 
@@ -523,20 +645,24 @@ async def check_route(
         raise HTTPException(status_code=404, detail="Commute configuration not found")
 
     waypoints_raw = getattr(commute_data, "waypoints", None) if commute_data else None
+    if not waypoints_raw and commute and getattr(commute, "waypoints", None):
+        waypoints_raw = commute.waypoints
 
     if waypoints_raw:
         coords: List[Tuple[float, float]] = [(commute.lat, commute.lon)]
         wp_names: List[str] = [commute.name or "Origin"]
         for i, w in enumerate(waypoints_raw):
-            if isinstance(w, (list, tuple)):
-                coords.append((float(w[0]), float(w[1])))
-                wp_names.append(f"Waypoint {i+1}")
-            elif isinstance(w, dict):
-                coords.append((float(w["lat"]), float(w["lon"])))
-                wp_names.append(w.get("name", f"Waypoint {i+1}"))
-            elif hasattr(w, "lat") and hasattr(w, "lon"):
-                coords.append((float(w.lat), float(w.lon)))
-                wp_names.append(getattr(w, "name", f"Waypoint {i+1}"))
+            try:
+                w_lat, w_lon = parse_coordinate(w)
+                coords.append((w_lat, w_lon))
+                w_name = ""
+                if isinstance(w, dict):
+                    w_name = w.get("name", "")
+                elif hasattr(w, "name"):
+                    w_name = getattr(w, "name", "")
+                wp_names.append(w_name or f"Waypoint {i+1}")
+            except Exception as e:
+                print(f"Error parsing waypoint {w}: {e}")
 
         if commute.dest_lat is not None and commute.dest_lon is not None:
             coords.append((commute.dest_lat, commute.dest_lon))
@@ -547,7 +673,7 @@ async def check_route(
         except Exception as e:
             raise HTTPException(status_code=503, detail="Weather service unavailable")
 
-        outbound_time = commute.schedule_time or "08:00"
+        outbound_time = commute.schedule_time or departure_time or "08:00"
         assessment_result = engine_instance.assess_timed_route(
             coordinates=coords,
             departure_time=outbound_time,
@@ -563,7 +689,7 @@ async def check_route(
         except Exception as e:
             raise HTTPException(status_code=503, detail="Weather service unavailable")
 
-        outbound_time = commute.schedule_time or "08:00"
+        outbound_time = commute.schedule_time or departure_time or "08:00"
         return_time = commute.return_schedule_time or "17:00"
 
         from .client import parse_hourly_at_time
@@ -598,6 +724,80 @@ async def check_route(
             print(f"Failed to persist on-demand assessment history: {e}")
 
     return assessment_result
+
+
+@app.get("/check", response_model=RouteAssessmentResult)
+@app.get("/api/check", response_model=RouteAssessmentResult)
+async def check_route_get(
+    commute_id: Optional[int] = Query(default=None),
+    lat: Optional[float] = Query(default=None),
+    lon: Optional[float] = Query(default=None),
+    dest_lat: Optional[float] = Query(default=None),
+    dest_lon: Optional[float] = Query(default=None),
+    dest_name: Optional[str] = Query(default=None),
+    schedule_time: Optional[str] = Query(default=None),
+    departure_time: Optional[str] = Query(default=None),
+    return_schedule_time: Optional[str] = Query(default=None),
+    unit_system: UnitSystem = Query(default=UnitSystem.IMPERIAL),
+    save_history: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    return await execute_route_check(
+        commute_data=None,
+        commute_id=commute_id,
+        lat=lat,
+        lon=lon,
+        dest_lat=dest_lat,
+        dest_lon=dest_lon,
+        dest_name=dest_name,
+        schedule_time=schedule_time or departure_time,
+        departure_time=departure_time or schedule_time,
+        return_schedule_time=return_schedule_time,
+        unit_system=unit_system,
+        save_history=save_history,
+        session=session,
+        user=user,
+    )
+
+
+@app.post("/check", response_model=RouteAssessmentResult)
+@app.post("/api/check", response_model=RouteAssessmentResult)
+async def check_route_post(
+    commute_data: Optional[RouteCheckRequest] = None,
+    commute_id: Optional[int] = Query(default=None),
+    lat: Optional[float] = Query(default=None),
+    lon: Optional[float] = Query(default=None),
+    dest_lat: Optional[float] = Query(default=None),
+    dest_lon: Optional[float] = Query(default=None),
+    dest_name: Optional[str] = Query(default=None),
+    schedule_time: Optional[str] = Query(default=None),
+    departure_time: Optional[str] = Query(default=None),
+    return_schedule_time: Optional[str] = Query(default=None),
+    unit_system: UnitSystem = Query(default=UnitSystem.IMPERIAL),
+    save_history: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    return await execute_route_check(
+        commute_data=commute_data,
+        commute_id=commute_id,
+        lat=lat,
+        lon=lon,
+        dest_lat=dest_lat,
+        dest_lon=dest_lon,
+        dest_name=dest_name,
+        schedule_time=schedule_time or departure_time,
+        departure_time=departure_time or schedule_time,
+        return_schedule_time=return_schedule_time,
+        unit_system=unit_system,
+        save_history=save_history,
+        session=session,
+        user=user,
+    )
+
+
+check_route = check_route_post
 
 
 # --- Route Directions Endpoints ---
