@@ -23,6 +23,9 @@ ENV/
 
 # Database Files
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite3
 commute_check.db
 jobs.db
@@ -58,3 +61,8 @@ pnpm-debug.log*
 .gemini/
 init_output.*
 SESSION_REPORT.md
+
+# Browser test artifacts
+frontend/test-results/
+frontend/playwright-report/
+vapid-keys.json

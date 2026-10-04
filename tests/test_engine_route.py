@@ -119,7 +119,10 @@ def test_time_interpolated_weather_sampling_detects_delayed_hazard(engine, thres
     # Mock hourly forecasts for each location (24 hours)
     origin_forecast = {
         "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
+            "time": [
+                f"{datetime.now(timezone.utc).date().isoformat()}T{h:02d}:00"
+                for h in range(24)
+            ],
             "temperature_2m": [65.0] * 24,
             "apparent_temperature": [65.0] * 24,
             "wind_speed_10m": [8.0] * 24,
@@ -136,7 +139,10 @@ def test_time_interpolated_weather_sampling_detects_delayed_hazard(engine, thres
     mid_weather_codes[9] = 65  # Heavy rain
     midpoint_forecast = {
         "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
+            "time": [
+                f"{datetime.now(timezone.utc).date().isoformat()}T{h:02d}:00"
+                for h in range(24)
+            ],
             "temperature_2m": [62.0] * 24,
             "apparent_temperature": [62.0] * 24,
             "wind_speed_10m": [10.0] * 24,
@@ -148,7 +154,10 @@ def test_time_interpolated_weather_sampling_detects_delayed_hazard(engine, thres
 
     dest_forecast = {
         "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
+            "time": [
+                f"{datetime.now(timezone.utc).date().isoformat()}T{h:02d}:00"
+                for h in range(24)
+            ],
             "temperature_2m": [68.0] * 24,
             "apparent_temperature": [68.0] * 24,
             "wind_speed_10m": [6.0] * 24,
@@ -198,7 +207,11 @@ def test_time_interpolated_weather_sampling_detects_delayed_hazard(engine, thres
 
     # Hazard Pinpoints should identify the rain breach at San Mateo
     assert len(result.hazard_pinpoints) >= 1
-    rain_pinpoints = [p for p in result.hazard_pinpoints if p.parameter in ("precipitation_probability", "precip_prob")]
+    rain_pinpoints = [
+        p
+        for p in result.hazard_pinpoints
+        if p.parameter in ("precipitation_probability", "precip_prob")
+    ]
     assert len(rain_pinpoints) == 1
     pinpoint = rain_pinpoints[0]
     assert pinpoint.coordinates == (37.5630, -122.3255)
@@ -214,9 +227,16 @@ def test_time_interpolated_weather_sampling_detects_delayed_hazard(engine, thres
 def test_hazard_pinpoint_detection_parameters(engine, thresholds):
     # 1. Ice risk
     ice_weather = HourlyWeather(
-        temperature=35.0, apparent_temp=30.0, wind_speed=5.0, wind_gusts=5.0, precip_prob=0.0, weather_code=0
+        temperature=35.0,
+        apparent_temp=30.0,
+        wind_speed=5.0,
+        wind_gusts=5.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
-    hazards = engine.detect_hazard_pinpoints(ice_weather, thresholds, (37.7, -122.4), "08:00")
+    hazards = engine.detect_hazard_pinpoints(
+        ice_weather, thresholds, (37.7, -122.4), "08:00"
+    )
     temp_hazards = [h for h in hazards if h.parameter == "temperature"]
     assert len(temp_hazards) == 1
     assert temp_hazards[0].severity == Status.NO_GO
@@ -225,9 +245,16 @@ def test_hazard_pinpoint_detection_parameters(engine, thresholds):
 
     # 2. Wind caution and No-Go
     wind_caution = HourlyWeather(
-        temperature=70.0, apparent_temp=70.0, wind_speed=18.0, wind_gusts=20.0, precip_prob=0.0, weather_code=0
+        temperature=70.0,
+        apparent_temp=70.0,
+        wind_speed=18.0,
+        wind_gusts=20.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
-    hazards_wind_caution = engine.detect_hazard_pinpoints(wind_caution, thresholds, (37.7, -122.4), "08:15")
+    hazards_wind_caution = engine.detect_hazard_pinpoints(
+        wind_caution, thresholds, (37.7, -122.4), "08:15"
+    )
     wind_hazards = [h for h in hazards_wind_caution if h.parameter == "wind_speed"]
     assert len(wind_hazards) == 1
     assert wind_hazards[0].severity == Status.CAUTION
@@ -235,9 +262,16 @@ def test_hazard_pinpoint_detection_parameters(engine, thresholds):
     assert wind_hazards[0].threshold == thresholds.max_wind_caution
 
     wind_nogo = HourlyWeather(
-        temperature=70.0, apparent_temp=70.0, wind_speed=30.0, wind_gusts=40.0, precip_prob=0.0, weather_code=0
+        temperature=70.0,
+        apparent_temp=70.0,
+        wind_speed=30.0,
+        wind_gusts=40.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
-    hazards_wind_nogo = engine.detect_hazard_pinpoints(wind_nogo, thresholds, (37.7, -122.4), "08:30")
+    hazards_wind_nogo = engine.detect_hazard_pinpoints(
+        wind_nogo, thresholds, (37.7, -122.4), "08:30"
+    )
     speed_nogo = [h for h in hazards_wind_nogo if h.parameter == "wind_speed"]
     gust_nogo = [h for h in hazards_wind_nogo if h.parameter == "wind_gusts"]
     assert len(speed_nogo) == 1 and speed_nogo[0].severity == Status.NO_GO
@@ -245,9 +279,16 @@ def test_hazard_pinpoint_detection_parameters(engine, thresholds):
 
     # 3. Weather code >= 71 (e.g., 95 Thunderstorm)
     storm_weather = HourlyWeather(
-        temperature=70.0, apparent_temp=70.0, wind_speed=10.0, wind_gusts=12.0, precip_prob=10.0, weather_code=95
+        temperature=70.0,
+        apparent_temp=70.0,
+        wind_speed=10.0,
+        wind_gusts=12.0,
+        precip_prob=10.0,
+        weather_code=95,
     )
-    hazards_storm = engine.detect_hazard_pinpoints(storm_weather, thresholds, (37.7, -122.4), "08:45")
+    hazards_storm = engine.detect_hazard_pinpoints(
+        storm_weather, thresholds, (37.7, -122.4), "08:45"
+    )
     code_hazards = [h for h in hazards_storm if h.parameter == "weather_code"]
     assert len(code_hazards) == 1
     assert code_hazards[0].severity == Status.NO_GO
@@ -268,10 +309,20 @@ def test_composite_route_safety_caution_and_no_go(engine, thresholds):
     # Segment 2: Caution (chilly temperature)
     # Segment 3: Go (clear)
     w_clear = HourlyWeather(
-        temperature=70.0, apparent_temp=70.0, wind_speed=5.0, wind_gusts=5.0, precip_prob=0.0, weather_code=0
+        temperature=70.0,
+        apparent_temp=70.0,
+        wind_speed=5.0,
+        wind_gusts=5.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
     w_caution = HourlyWeather(
-        temperature=42.0, apparent_temp=40.0, wind_speed=5.0, wind_gusts=5.0, precip_prob=0.0, weather_code=0
+        temperature=42.0,
+        apparent_temp=40.0,
+        wind_speed=5.0,
+        wind_gusts=5.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
 
     weather_list_caution = [w_clear, w_caution, w_clear, w_clear]
@@ -298,7 +349,12 @@ def test_composite_route_safety_caution_and_no_go(engine, thresholds):
 
     # Now make Segment 3 No-Go with high winds
     w_nogo = HourlyWeather(
-        temperature=70.0, apparent_temp=70.0, wind_speed=35.0, wind_gusts=45.0, precip_prob=0.0, weather_code=0
+        temperature=70.0,
+        apparent_temp=70.0,
+        wind_speed=35.0,
+        wind_gusts=45.0,
+        precip_prob=0.0,
+        weather_code=0,
     )
     weather_list_nogo = [w_clear, w_caution, w_clear, w_nogo]
     result_nogo = engine.assess_timed_route(
@@ -347,7 +403,9 @@ async def test_weather_client_batch_sampling_and_ttl_cache():
         return mock_resp
 
     with patch.object(client, "fetch_weather", side_effect=mock_fetch):
-        results = await client.fetch_weather_batch(coords, unit_system=UnitSystem.IMPERIAL)
+        results = await client.fetch_weather_batch(
+            coords, unit_system=UnitSystem.IMPERIAL
+        )
         assert len(results) == 3
         # Since first and third coordinates are identical, fetch_weather should only be called twice!
         assert call_count == 2
@@ -357,7 +415,9 @@ async def test_weather_client_batch_sampling_and_ttl_cache():
     client._cache[f"raw_37.563_-122.3255_imperial"] = mock_resp
 
     with patch("httpx.AsyncClient.get") as mock_http_get:
-        cached_results = await client.fetch_weather_batch(coords, unit_system=UnitSystem.IMPERIAL)
+        cached_results = await client.fetch_weather_batch(
+            coords, unit_system=UnitSystem.IMPERIAL
+        )
         assert len(cached_results) == 3
         # Network shouldn't be touched due to cache hits
         mock_http_get.assert_not_called()
@@ -367,7 +427,9 @@ async def test_weather_client_batch_sampling_and_ttl_cache():
 # 6. API Endpoints: POST /check and POST /assess with Waypoints
 # ---------------------------------------------------------------------------
 DATABASE_URL = "sqlite:///./test_route.db"
-test_engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+test_engine = create_engine(
+    DATABASE_URL, echo=False, connect_args={"check_same_thread": False}
+)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -402,28 +464,27 @@ def test_post_check_with_waypoints(api_client):
     from app.security import get_password_hash
 
     with Session(test_engine) as session:
-        user = User(email="route_test@example.com", hashed_password=get_password_hash("pass123"))
+        user = User(
+            email="route_test@example.com", hashed_password=get_password_hash("pass123")
+        )
         session.add(user)
         session.commit()
         session.refresh(user)
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=30)
-    token = jwt.encode({"sub": "route_test@example.com", "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": "route_test@example.com", "exp": expire},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
     headers = {"Authorization": f"Bearer {token}"}
 
-    mock_forecast = {
-        "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
-            "temperature_2m": [68.0] * 24,
-            "apparent_temperature": [68.0] * 24,
-            "wind_speed_10m": [8.0] * 24,
-            "wind_gusts_10m": [10.0] * 24,
-            "precipitation_probability": [0.0] * 24,
-            "weather_code": [0] * 24,
-        }
-    }
+    from tests.helpers import forecast
 
-    with patch("app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock) as mock_batch:
+    mock_forecast = forecast(68)
+    with patch(
+        "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+    ) as mock_batch:
         mock_batch.return_value = [mock_forecast, mock_forecast, mock_forecast]
 
         payload = {
@@ -434,9 +495,7 @@ def test_post_check_with_waypoints(api_client):
             "dest_lat": 37.3382,
             "dest_lon": -121.8863,
             "schedule_time": "08:00",
-            "waypoints": [
-                {"lat": 37.5630, "lon": -122.3255, "name": "San Mateo"}
-            ],
+            "waypoints": [{"lat": 37.5630, "lon": -122.3255, "name": "San Mateo"}],
             "min_temp_caution": 45.0,
             "min_temp_no_go": 38.0,
             "max_wind_caution": 15.0,
@@ -455,16 +514,16 @@ def test_post_check_with_waypoints(api_client):
 
         # Segments
         assert "segments" in data
-        assert len(data["segments"]) == 2  # Origin -> San Mateo, San Mateo -> San Jose
-        assert data["segments"][0]["start_name"] == "Multi-Stop Route"
+        assert len(data["segments"]) == 4  # Origin -> San Mateo, San Mateo -> San Jose
+        assert data["segments"][0]["start_name"] == "Home"
         assert data["segments"][0]["end_name"] == "San Mateo"
         assert data["segments"][1]["start_name"] == "San Mateo"
         assert data["segments"][1]["end_name"] == "San Jose"
 
         # Waypoint evaluations
         assert "waypoint_evaluations" in data
-        assert len(data["waypoint_evaluations"]) == 3
-        assert data["waypoint_evaluations"][0]["name"] == "Multi-Stop Route"
+        assert len(data["waypoint_evaluations"]) == 6
+        assert data["waypoint_evaluations"][0]["name"] == "Home"
         assert data["waypoint_evaluations"][1]["name"] == "San Mateo"
         assert data["waypoint_evaluations"][2]["name"] == "San Jose"
 
@@ -476,7 +535,10 @@ def test_post_check_with_waypoints(api_client):
 def test_post_assess_with_waypoints_and_hazards(api_client):
     clear_forecast = {
         "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
+            "time": [
+                f"{datetime.now(timezone.utc).date().isoformat()}T{h:02d}:00"
+                for h in range(24)
+            ],
             "temperature_2m": [70.0] * 24,
             "apparent_temperature": [70.0] * 24,
             "wind_speed_10m": [5.0] * 24,
@@ -488,7 +550,10 @@ def test_post_assess_with_waypoints_and_hazards(api_client):
     # Dangerous wind at second point
     windy_forecast = {
         "hourly": {
-            "time": [f"2026-10-03T{h:02d}:00" for h in range(24)],
+            "time": [
+                f"{datetime.now(timezone.utc).date().isoformat()}T{h:02d}:00"
+                for h in range(24)
+            ],
             "temperature_2m": [60.0] * 24,
             "apparent_temperature": [60.0] * 24,
             "wind_speed_10m": [32.0] * 24,  # > 25.0 No-Go
@@ -498,7 +563,9 @@ def test_post_assess_with_waypoints_and_hazards(api_client):
         }
     }
 
-    with patch("app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock) as mock_batch:
+    with patch(
+        "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+    ) as mock_batch:
         mock_batch.return_value = [clear_forecast, windy_forecast]
 
         payload = {
@@ -531,7 +598,9 @@ def test_post_assess_with_waypoints_and_hazards(api_client):
         # Hazard pinpoints
         assert "hazard_pinpoints" in data
         assert len(data["hazard_pinpoints"]) >= 1
-        wind_hazards = [p for p in data["hazard_pinpoints"] if p["parameter"] == "wind_speed"]
+        wind_hazards = [
+            p for p in data["hazard_pinpoints"] if p["parameter"] == "wind_speed"
+        ]
         assert len(wind_hazards) == 1
         assert wind_hazards[0]["severity"] == "No-Go"
         assert wind_hazards[0]["value"] == 32.0

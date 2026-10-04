@@ -85,7 +85,9 @@ def test_golden_path_user_journey(client: TestClient):
         "max_wind_caution": 20.0,
         "max_wind_no_go": 35.0,
     }
-    create_resp = client.post("/api/commutes", json=commute_payload, headers=auth_headers)
+    create_resp = client.post(
+        "/api/commutes", json=commute_payload, headers=auth_headers
+    )
     assert create_resp.status_code == 200, create_resp.text
     commute_data = create_resp.json()
     commute_id = commute_data["id"]
@@ -104,7 +106,9 @@ def test_golden_path_user_journey(client: TestClient):
         "destination": {"lat": 37.7891, "lon": -122.4014},
         "waypoints": [{"lat": 37.7800, "lon": -122.4100}],
     }
-    dir_resp = client.post("/api/route/directions", json=directions_payload, headers=auth_headers)
+    dir_resp = client.post(
+        "/api/route/directions", json=directions_payload, headers=auth_headers
+    )
     assert dir_resp.status_code == 200
     route_info = dir_resp.json()
     assert "geometry" in route_info
@@ -112,27 +116,26 @@ def test_golden_path_user_journey(client: TestClient):
     assert route_info["total_duration"] > 0
 
     # 6. Route Assessment (Mock external WeatherClient at network boundary)
-    mock_forecast = {
-        "hourly": {
-            "time": [f"2026-10-04T{h:02d}:00" for h in range(24)],
-            "temperature_2m": [65.0] * 24,
-            "apparent_temperature": [65.0] * 24,
-            "wind_speed_10m": [8.0] * 24,
-            "wind_gusts_10m": [10.0] * 24,
-            "precipitation_probability": [0.0] * 24,
-            "weather_code": [0] * 24,
-        }
-    }
+    from tests.helpers import forecast
+
+    mock_forecast = forecast(65)
     with patch(
         "app.main.client_instance.fetch_weather_batch",
         new_callable=AsyncMock,
-        return_value=[mock_forecast, mock_forecast, mock_forecast, mock_forecast],
+        return_value=[mock_forecast, mock_forecast, mock_forecast],
     ):
-        check_resp = client.post(f"/api/check?commute_id={commute_id}", headers=auth_headers)
+        check_resp = client.post(
+            f"/api/check?commute_id={commute_id}", headers=auth_headers
+        )
         assert check_resp.status_code == 200, check_resp.text
         assessment = check_resp.json()
         assert assessment["overall_status"] == Status.GO.value
-        assert "waypoint_evaluations" in assessment
+        assert len(assessment["outbound_leg"]["waypoint_evaluations"]) == 3
+        assert len(assessment["return_leg"]["waypoint_evaluations"]) == 3
+        assert (
+            assessment["return_leg"]["waypoint_evaluations"][1]["name"]
+            == "Scenic Overlook"
+        )
 
     # 7. Record Decision in Analytics
     decision_payload = {
@@ -169,7 +172,9 @@ def test_golden_path_user_journey(client: TestClient):
         "schedule_time": "08:30",
         "rain_threshold": 15.0,
     }
-    put_resp = client.put(f"/api/commutes/{commute_id}", json=update_payload, headers=auth_headers)
+    put_resp = client.put(
+        f"/api/commutes/{commute_id}", json=update_payload, headers=auth_headers
+    )
     assert put_resp.status_code == 200
     assert put_resp.json()["rain_threshold"] == 15.0
 

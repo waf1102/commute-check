@@ -13,6 +13,7 @@ import pytest
 DATABASE_URL = "sqlite:///./test.db"
 engine = create_engine(DATABASE_URL, echo=False)
 
+
 @pytest.fixture(autouse=True, scope="module")
 def cleanup_test_db():
     yield
@@ -23,12 +24,15 @@ def cleanup_test_db():
         except OSError:
             pass
 
+
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+
 
 def get_session_override():
     with Session(engine) as session:
         yield session
+
 
 @pytest.fixture(name="session")
 def session_fixture():
@@ -37,6 +41,7 @@ def session_fixture():
         yield session
     SQLModel.metadata.drop_all(engine)
 
+
 @pytest.fixture(name="client")
 def client_fixture(session: Session):
     app.dependency_overrides[get_session] = lambda: session
@@ -44,7 +49,10 @@ def client_fixture(session: Session):
     yield client
     app.dependency_overrides.clear()
 
-def create_test_user(session: Session, email: str = "test@example.com", password: str = "testpassword") -> User:
+
+def create_test_user(
+    session: Session, email: str = "test@example.com", password: str = "testpassword"
+) -> User:
     hashed_password = get_password_hash(password)
     user = User(email=email, hashed_password=hashed_password)
     session.add(user)
@@ -52,13 +60,17 @@ def create_test_user(session: Session, email: str = "test@example.com", password
     session.refresh(user)
     return user
 
-def get_auth_token(email: str = "test@example.com", password: str = "testpassword") -> str:
+
+def get_auth_token(
+    email: str = "test@example.com", password: str = "testpassword"
+) -> str:
     access_token_expires = timedelta(minutes=30)
     to_encode = {"sub": email}
     expire = datetime.now(timezone.utc) + access_token_expires
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 @pytest.fixture
 def authenticated_client(client: TestClient, session: Session):
@@ -67,6 +79,7 @@ def authenticated_client(client: TestClient, session: Session):
     client.headers = {"Authorization": f"Bearer {token}"}
     return client, user
 
+
 @pytest.fixture
 def other_user_authenticated_client(client: TestClient, session: Session):
     user = create_test_user(session, email="other@example.com")
@@ -74,22 +87,23 @@ def other_user_authenticated_client(client: TestClient, session: Session):
     client.headers = {"Authorization": f"Bearer {token}"}
     return client, user
 
-def test_get_current_user_valid_token(authenticated_client: TestClient):
-    # This test directly verifies behavior that will be implemented in app/security.py
-    # For now, it will fail because get_current_user is not yet implemented or wired.
-    # We will mock the dependency later for other tests if needed, but for now we want to test the actual implementation.
-    # The actual implementation relies on app.security.get_current_user which we cannot directly test with the client,
-    # but the endpoints that use it will implicitly test it.
-    # The framework will raise an HTTPException if authentication fails.
-    # This test will pass once app.security.get_current_user is implemented and used in an endpoint.
-    pass # Placeholder for implicit testing via endpoints
+
+def test_get_current_user_valid_token(authenticated_client):
+    client, _ = authenticated_client
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    assert response.json() == []
+
 
 def test_get_current_user_invalid_token(client: TestClient):
     response = client.get("/config", headers={"Authorization": "Bearer invalid_token"})
     assert response.status_code == 401
     assert response.json()["detail"] == "Could not validate credentials"
 
-def test_read_config_authenticated(authenticated_client: tuple[TestClient, User], session: Session):
+
+def test_read_config_authenticated(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
     # Create a commute for the authenticated user
     commute_data = CommuteCreate(name="Home", lat=1.0, lon=2.0, schedule_time="08:00")
@@ -99,9 +113,15 @@ def test_read_config_authenticated(authenticated_client: tuple[TestClient, User]
     session.refresh(commute)
 
     # Create a commute for another user
-    other_user = create_test_user(session, email="other@test.com", password="otherpassword")
-    other_commute_data = CommuteCreate(name="Work", lat=3.0, lon=4.0, schedule_time="09:00")
-    other_commute = Commute.model_validate(other_commute_data, update={"user_id": other_user.id})
+    other_user = create_test_user(
+        session, email="other@test.com", password="otherpassword"
+    )
+    other_commute_data = CommuteCreate(
+        name="Work", lat=3.0, lon=4.0, schedule_time="09:00"
+    )
+    other_commute = Commute.model_validate(
+        other_commute_data, update={"user_id": other_user.id}
+    )
     session.add(other_commute)
     session.commit()
     session.refresh(other_commute)
@@ -113,19 +133,22 @@ def test_read_config_authenticated(authenticated_client: tuple[TestClient, User]
     assert commutes[0]["name"] == "Home"
     assert commutes[0]["user_id"] == user.id
 
+
 def test_read_config_unauthenticated(client: TestClient):
     response = client.get("/config")
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
 
 
-def test_create_config_authenticated(authenticated_client: tuple[TestClient, User], session: Session):
+def test_create_config_authenticated(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
     commute_data = {
         "name": "New Commute",
         "lat": 10.0,
         "lon": 20.0,
-        "schedule_time": "07:30"
+        "schedule_time": "07:30",
     }
     response = client.post("/config", json=commute_data)
     assert response.status_code == 200
@@ -138,21 +161,26 @@ def test_create_config_authenticated(authenticated_client: tuple[TestClient, Use
     assert db_commute is not None
     assert db_commute.user_id == user.id
 
+
 def test_create_config_unauthenticated(client: TestClient):
     commute_data = {
         "name": "New Commute",
         "lat": 10.0,
         "lon": 20.0,
-        "schedule_time": "07:30"
+        "schedule_time": "07:30",
     }
     response = client.post("/config", json=commute_data)
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
 
 
-def test_delete_config_authenticated_owner(authenticated_client: tuple[TestClient, User], session: Session):
+def test_delete_config_authenticated_owner(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
-    commute_data = CommuteCreate(name="To Delete", lat=1.0, lon=2.0, schedule_time="08:00")
+    commute_data = CommuteCreate(
+        name="To Delete", lat=1.0, lon=2.0, schedule_time="08:00"
+    )
     commute = Commute.model_validate(commute_data, update={"user_id": user.id})
     session.add(commute)
     session.commit()
@@ -166,27 +194,46 @@ def test_delete_config_authenticated_owner(authenticated_client: tuple[TestClien
     db_commute = session.get(Commute, commute.id)
     assert db_commute is None
 
-def test_delete_config_authenticated_not_owner(authenticated_client: tuple[TestClient, User], session: Session):
+
+def test_delete_config_authenticated_not_owner(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
     # Create commute for another user
-    other_user = create_test_user(session, email="another@test.com", password="anotherpassword")
-    other_commute_data = CommuteCreate(name="Other Commute", lat=3.0, lon=4.0, schedule_time="09:00")
-    other_commute = Commute.model_validate(other_commute_data, update={"user_id": other_user.id})
+    other_user = create_test_user(
+        session, email="another@test.com", password="anotherpassword"
+    )
+    other_commute_data = CommuteCreate(
+        name="Other Commute", lat=3.0, lon=4.0, schedule_time="09:00"
+    )
+    other_commute = Commute.model_validate(
+        other_commute_data, update={"user_id": other_user.id}
+    )
     session.add(other_commute)
     session.commit()
     session.refresh(other_commute)
 
     response = client.delete(f"/config/{other_commute.id}")
-    assert response.status_code == 404 # Should be 404 or 403, depending on implementation
-    assert "not found" in response.json()["detail"].lower() or "not authorized" in response.json()["detail"].lower()
+    assert (
+        response.status_code == 404
+    )  # Should be 404 or 403, depending on implementation
+    assert (
+        "not found" in response.json()["detail"].lower()
+        or "not authorized" in response.json()["detail"].lower()
+    )
 
     # Verify it's NOT deleted from DB
     db_commute = session.get(Commute, other_commute.id)
     assert db_commute is not None
 
+
 def test_delete_config_unauthenticated(client: TestClient, session: Session):
-    commute_data = CommuteCreate(name="To Delete", lat=1.0, lon=2.0, schedule_time="08:00")
-    commute = Commute.model_validate(commute_data, update={"user_id": create_test_user(session).id})
+    commute_data = CommuteCreate(
+        name="To Delete", lat=1.0, lon=2.0, schedule_time="08:00"
+    )
+    commute = Commute.model_validate(
+        commute_data, update={"user_id": create_test_user(session).id}
+    )
     session.add(commute)
     session.commit()
     session.refresh(commute)
@@ -195,11 +242,16 @@ def test_delete_config_unauthenticated(client: TestClient, session: Session):
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
 
+
 # Test for updating a commute
-def test_update_config_authenticated_owner(authenticated_client: tuple[TestClient, User], session: Session):
+def test_update_config_authenticated_owner(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
     # Create a commute for the user
-    commute_data = CommuteCreate(name="Old Name", lat=1.0, lon=1.0, schedule_time="08:00")
+    commute_data = CommuteCreate(
+        name="Old Name", lat=1.0, lon=1.0, schedule_time="08:00"
+    )
     commute = Commute.model_validate(commute_data, update={"user_id": user.id})
     session.add(commute)
     session.commit()
@@ -219,12 +271,21 @@ def test_update_config_authenticated_owner(authenticated_client: tuple[TestClien
     db_commute = session.get(Commute, commute.id)
     assert db_commute.name == "New Name"
 
-def test_update_config_authenticated_not_owner(authenticated_client: tuple[TestClient, User], session: Session):
+
+def test_update_config_authenticated_not_owner(
+    authenticated_client: tuple[TestClient, User], session: Session
+):
     client, user = authenticated_client
     # Create commute for another user
-    other_user = create_test_user(session, email="another_update@test.com", password="anotherpassword")
-    other_commute_data = CommuteCreate(name="Other Commute", lat=3.0, lon=4.0, schedule_time="09:00")
-    other_commute = Commute.model_validate(other_commute_data, update={"user_id": other_user.id})
+    other_user = create_test_user(
+        session, email="another_update@test.com", password="anotherpassword"
+    )
+    other_commute_data = CommuteCreate(
+        name="Other Commute", lat=3.0, lon=4.0, schedule_time="09:00"
+    )
+    other_commute = Commute.model_validate(
+        other_commute_data, update={"user_id": other_user.id}
+    )
     session.add(other_commute)
     session.commit()
     session.refresh(other_commute)
@@ -234,15 +295,23 @@ def test_update_config_authenticated_not_owner(authenticated_client: tuple[TestC
     updated_data["id"] = other_commute.id
 
     response = client.post("/config", json=updated_data)
-    assert response.status_code == 404 # Should be 404 or 403
-    assert "not found" in response.json()["detail"].lower() or "not authorized" in response.json()["detail"].lower()
+    assert response.status_code == 404  # Should be 404 or 403
+    assert (
+        "not found" in response.json()["detail"].lower()
+        or "not authorized" in response.json()["detail"].lower()
+    )
 
     db_commute = session.get(Commute, other_commute.id)
-    assert db_commute.name == "Other Commute" # Should not be updated
+    assert db_commute.name == "Other Commute"  # Should not be updated
+
 
 def test_update_config_unauthenticated(client: TestClient, session: Session):
-    commute_data = CommuteCreate(name="Original Name", lat=1.0, lon=1.0, schedule_time="08:00")
-    commute = Commute.model_validate(commute_data, update={"user_id": create_test_user(session).id})
+    commute_data = CommuteCreate(
+        name="Original Name", lat=1.0, lon=1.0, schedule_time="08:00"
+    )
+    commute = Commute.model_validate(
+        commute_data, update={"user_id": create_test_user(session).id}
+    )
     session.add(commute)
     session.commit()
     session.refresh(commute)

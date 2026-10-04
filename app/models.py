@@ -1,10 +1,9 @@
 from enum import Enum
-from typing import List, Optional, Tuple, Any, Union, Dict
-import math
+from typing import List, Optional, Tuple, Any, Union
 from sqlmodel import Field, SQLModel, Relationship
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from datetime import datetime, timezone
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Column, String
 from sqlalchemy.types import TypeDecorator, JSON
 
 
@@ -13,9 +12,11 @@ class Status(str, Enum):
     CAUTION = "Caution"
     NO_GO = "No-Go"
 
+
 class UnitSystem(str, Enum):
     METRIC = "metric"
     IMPERIAL = "imperial"
+
 
 class CommuteType(str, Enum):
     RIDING = "riding"
@@ -61,7 +62,12 @@ class HazardPinpoint(BaseModel):
                 data["lat"] = float(c[0])
             if "lon" not in data or data["lon"] is None:
                 data["lon"] = float(c[1])
-        elif "lat" in data and "lon" in data and data["lat"] is not None and data["lon"] is not None:
+        elif (
+            "lat" in data
+            and "lon" in data
+            and data["lat"] is not None
+            and data["lon"] is not None
+        ):
             data["coordinates"] = (float(data["lat"]), float(data["lon"]))
 
         if "parameter" in data and "parameter_breached" not in data:
@@ -94,7 +100,11 @@ class HazardPinpoint(BaseModel):
         if "parameter" not in data or data["parameter"] is None:
             data["parameter"] = data.get("hazard") or "weather"
         if "warning_message" not in data or data["warning_message"] is None:
-            data["warning_message"] = data.get("title") or data.get("description") or "Adverse weather conditions"
+            data["warning_message"] = (
+                data.get("title")
+                or data.get("description")
+                or "Adverse weather conditions"
+            )
         if "description" not in data or data["description"] is None:
             data["description"] = data["warning_message"]
 
@@ -209,6 +219,10 @@ class LegAssessment(BaseModel):
 
 
 class RouteAssessmentResult(BaseModel):
+    assessment_date: Optional[str] = None
+    checked_at: Optional[str] = None
+    timezone: str = "UTC"
+    routing_estimated: bool = True
     overall_status: Status
     overall_score: int
     outbound_leg: LegAssessment
@@ -221,12 +235,10 @@ class RouteAssessmentResult(BaseModel):
 
 
 class AssessmentRequest(BaseModel):
-    model_config = {"extra": "allow"}
-
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    dest_lat: Optional[float] = None
-    dest_lon: Optional[float] = None
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
+    dest_lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    dest_lon: Optional[float] = Field(default=None, ge=-180, le=180)
     dest_name: Optional[str] = None
     departure_time: Optional[str] = None
     schedule_time: Optional[str] = None
@@ -237,87 +249,45 @@ class AssessmentRequest(BaseModel):
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
-    min_temp: Optional[float] = None
-    max_temp: Optional[float] = None
-    max_wind: Optional[float] = None
-    max_precip: Optional[float] = None
 
-    def __init__(self, **data):
-        if "schedule_time" in data and ("departure_time" not in data or data["departure_time"] is None):
-            data["departure_time"] = data["schedule_time"]
-        elif "departure_time" in data and ("schedule_time" not in data or data["schedule_time"] is None):
-            data["schedule_time"] = data["departure_time"]
-        elif "departure_time" not in data and "schedule_time" not in data:
-            data["departure_time"] = "08:00"
-            data["schedule_time"] = "08:00"
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_limits(cls, value):
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        if value.get("min_temp") is not None:
+            value.setdefault("min_temp_caution", value["min_temp"])
+            value.setdefault("min_temp_no_go", float(value["min_temp"]) - 7)
+        if value.get("max_wind") is not None:
+            value.setdefault("max_wind_caution", value["max_wind"])
+            value.setdefault("max_wind_no_go", float(value["max_wind"]) + 10)
+        if value.get("max_precip") is not None:
+            value.setdefault("rain_threshold", value["max_precip"])
+        return value
 
-        if "min_temp" in data and data["min_temp"] is not None:
-            if "min_temp_caution" not in data:
-                data["min_temp_caution"] = float(data["min_temp"])
-            if "min_temp_no_go" not in data:
-                data["min_temp_no_go"] = float(data["min_temp"]) - 7.0
-        if "max_wind" in data and data["max_wind"] is not None:
-            if "max_wind_caution" not in data:
-                data["max_wind_caution"] = float(data["max_wind"])
-            if "max_wind_no_go" not in data:
-                data["max_wind_no_go"] = float(data["max_wind"]) + 10.0
-        if "max_precip" in data and data["max_precip"] is not None:
-            if "rain_threshold" not in data:
-                data["rain_threshold"] = float(data["max_precip"])
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def checked_waypoints(cls, value):
+        from .routing import parse_coordinate
 
-        super().__init__(**data)
+        if value is None:
+            return []
+        if not isinstance(value, list) or len(value) > 8:
+            raise ValueError("Use at most 8 stops")
+        for waypoint in value:
+            parse_coordinate(waypoint)
+        return value
 
 
-class RouteCheckRequest(BaseModel):
-    model_config = {"extra": "allow"}
-
+class RouteCheckRequest(AssessmentRequest):
     commute_id: Optional[int] = None
-    name: Optional[str] = "Default Commute"
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    dest_lat: Optional[float] = None
-    dest_lon: Optional[float] = None
-    dest_name: Optional[str] = None
-    schedule_time: Optional[str] = None
-    departure_time: Optional[str] = None
+    name: str = "Default Commute"
+    origin_name: Optional[str] = None
     return_schedule_time: Optional[str] = "17:00"
-    days_of_week: Optional[str] = "mon-fri"
-    unit_system: Optional[UnitSystem] = UnitSystem.IMPERIAL
-    waypoints: Optional[List[Any]] = None
-    min_temp_caution: float = 45.0
-    min_temp_no_go: float = 38.0
-    max_wind_caution: float = 15.0
-    max_wind_no_go: float = 25.0
-    rain_threshold: float = 30.0
-    min_temp: Optional[float] = None
-    max_temp: Optional[float] = None
-    max_wind: Optional[float] = None
-    max_precip: Optional[float] = None
-    webhook_url: Optional[str] = None
-    save_history: Optional[bool] = False
-
-    def __init__(self, **data):
-        if "schedule_time" in data and ("departure_time" not in data or data["departure_time"] is None):
-            data["departure_time"] = data["schedule_time"]
-        elif "departure_time" in data and ("schedule_time" not in data or data["schedule_time"] is None):
-            data["schedule_time"] = data["departure_time"]
-
-        if "min_temp" in data and data["min_temp"] is not None:
-            if "min_temp_caution" not in data or data["min_temp_caution"] is None:
-                data["min_temp_caution"] = float(data["min_temp"])
-            if "min_temp_no_go" not in data or data["min_temp_no_go"] is None:
-                data["min_temp_no_go"] = float(data["min_temp"]) - 7.0
-        if "max_wind" in data and data["max_wind"] is not None:
-            if "max_wind_caution" not in data or data["max_wind_caution"] is None:
-                data["max_wind_caution"] = float(data["max_wind"])
-            if "max_wind_no_go" not in data or data["max_wind_no_go"] is None:
-                data["max_wind_no_go"] = float(data["max_wind"]) + 10.0
-        if "max_precip" in data and data["max_precip"] is not None:
-            if "rain_threshold" not in data or data["rain_threshold"] is None:
-                data["rain_threshold"] = float(data["max_precip"])
-
-        super().__init__(**data)
-
+    days_of_week: str = "mon-fri"
+    timezone: str = "UTC"
+    save_history: bool = False
 
 
 DAY_NAME_MAP = {
@@ -369,6 +339,7 @@ def validate_and_normalize_days_of_week(val: str) -> str:
     normalized = ",".join(norm_parts)
     try:
         from apscheduler.triggers.cron import CronTrigger
+
         CronTrigger(day_of_week=normalized)
     except Exception as exc:
         raise ValueError(f"Invalid days_of_week expression: {val}") from exc
@@ -387,14 +358,14 @@ class Waypoint(BaseModel):
     @field_validator("lat")
     @classmethod
     def validate_latitude(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
+        if not (-90.0 <= v <= 90.0):
             raise ValueError(f"Latitude must be between -90 and 90, got {v}")
         return v
 
     @field_validator("lon")
     @classmethod
     def validate_longitude(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
+        if not (-180.0 <= v <= 180.0):
             raise ValueError(f"Longitude must be between -180 and 180, got {v}")
         return v
 
@@ -407,6 +378,7 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
         return []
     if isinstance(v, str):
         import json
+
         try:
             v = json.loads(v)
         except Exception as exc:
@@ -415,60 +387,29 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
         raise ValueError("waypoints must be a list")
 
     parsed = []
-    for i, item in enumerate(v):
+    for index, item in enumerate(v):
         if isinstance(item, Waypoint):
             parsed.append(item)
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            parsed.append(Waypoint(
-                lat=float(item[0]),
-                lon=float(item[1]),
-                name=f"Waypoint {i+1}",
-                order=i,
-            ))
         elif isinstance(item, dict):
-            lat = item.get("lat") if "lat" in item else item.get("latitude")
-            lon = item.get("lon") if "lon" in item else (item.get("lng") if "lng" in item else item.get("longitude"))
-            if lat is None or lon is None:
-                raise ValueError(f"Coordinate dict must contain lat/lon: {item}")
-            parsed.append(Waypoint(
-                id=item.get("id"),
-                lat=float(lat),
-                lon=float(lon),
-                name=str(item.get("name", f"Waypoint {i+1}")),
-                order=int(item.get("order", i)),
-                status=item.get("status"),
-            ))
+            from .routing import parse_coordinate
+
+            lat, lon = parse_coordinate(item)
+            parsed.append(
+                Waypoint(
+                    **{
+                        **item,
+                        "lat": lat,
+                        "lon": lon,
+                        "order": item.get("order", index),
+                    }
+                )
+            )
+        elif isinstance(item, (tuple, list)) and len(item) == 2:
+            parsed.append(Waypoint(lat=item[0], lon=item[1], order=index))
         elif hasattr(item, "model_dump"):
-            data = item.model_dump()
-            lat = data.get("lat") if "lat" in data else data.get("latitude")
-            lon = data.get("lon") if "lon" in data else (data.get("lng") if "lng" in data else data.get("longitude"))
-            if lat is not None and lon is not None:
-                parsed.append(Waypoint(
-                    id=data.get("id"),
-                    lat=float(lat),
-                    lon=float(lon),
-                    name=str(data.get("name", f"Waypoint {i+1}")),
-                    order=int(data.get("order", i)),
-                    status=data.get("status"),
-                ))
-            else:
-                raise ValueError(f"Invalid waypoint item: {item}")
-        elif hasattr(item, "lat") and hasattr(item, "lon"):
-            parsed.append(Waypoint(
-                id=getattr(item, "id", None),
-                lat=float(item.lat),
-                lon=float(item.lon),
-                name=str(getattr(item, "name", f"Waypoint {i+1}")),
-                order=int(getattr(item, "order", i)),
-                status=getattr(item, "status", None),
-            ))
+            parsed.append(Waypoint(**item.model_dump()))
         else:
             raise ValueError(f"Invalid waypoint item: {item}")
-
-    if all(wp.order == 0 for wp in parsed):
-        for idx, wp in enumerate(parsed):
-            wp.order = idx
-        return parsed
     return sorted(parsed, key=lambda wp: wp.order)
 
 
@@ -490,6 +431,7 @@ class WaypointsJSON(TypeDecorator):
                 return result
             if isinstance(value, str):
                 import json
+
                 try:
                     return json.loads(value)
                 except Exception:
@@ -499,25 +441,33 @@ class WaypointsJSON(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is not None:
             import json
+
             if isinstance(value, str):
                 try:
                     value = json.loads(value)
                 except Exception:
                     pass
             if isinstance(value, list):
-                return [Waypoint(**item) if isinstance(item, dict) else item for item in value]
+                return [
+                    Waypoint(**item) if isinstance(item, dict) else item
+                    for item in value
+                ]
         return value or []
 
 
 class CommuteBase(SQLModel):
     name: str = "Default Commute"
+    origin_name: str = "Home"
+    timezone: str = "UTC"
     lat: float
     lon: float
     dest_name: Optional[str] = None
     dest_lat: Optional[float] = None
     dest_lon: Optional[float] = None
     schedule_time: str  # HH:MM format
-    return_schedule_time: Optional[str] = "17:00"
+    return_schedule_time: Optional[str] = Field(
+        default="17:00", sa_column=Column(String().evaluates_none(), nullable=True)
+    )
     days_of_week: str = "mon-fri"
     webhook_url: Optional[str] = None
     min_temp_caution: float = 45.0
@@ -526,7 +476,9 @@ class CommuteBase(SQLModel):
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
-    waypoints: Optional[List[Waypoint]] = Field(default_factory=list, sa_column=Column(WaypointsJSON))
+    waypoints: Optional[List[Waypoint]] = Field(
+        default_factory=list, sa_column=Column(WaypointsJSON)
+    )
 
     @field_validator("days_of_week", mode="before")
     @classmethod
@@ -540,83 +492,6 @@ class CommuteBase(SQLModel):
     def validate_waypoints_field(cls, v):
         return validate_and_sort_waypoints(v)
 
-    @field_validator("lat")
-    @classmethod
-    def validate_latitude(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
-            raise ValueError(f"Latitude must be between -90 and 90, got {v}")
-        return v
-
-    @field_validator("lon")
-    @classmethod
-    def validate_longitude(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
-            raise ValueError(f"Longitude must be between -180 and 180, got {v}")
-        return v
-
-    @field_validator("dest_lat")
-    @classmethod
-    def validate_dest_latitude(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None:
-            if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
-                raise ValueError(f"Destination latitude must be between -90 and 90, got {v}")
-        return v
-
-    @field_validator("dest_lon")
-    @classmethod
-    def validate_dest_longitude(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None:
-            if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
-                raise ValueError(f"Destination longitude must be between -180 and 180, got {v}")
-        return v
-
-    @field_validator("min_temp_caution", "min_temp_no_go")
-    @classmethod
-    def validate_temp_threshold(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (-100.0 <= v <= 150.0):
-            raise ValueError(f"Temperature threshold must be realistic (between -100 and 150), got {v}")
-        return v
-
-    @field_validator("max_wind_caution", "max_wind_no_go")
-    @classmethod
-    def validate_wind_threshold(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (0.0 <= v <= 200.0):
-            raise ValueError(f"Wind threshold must be non-negative and realistic (between 0 and 200), got {v}")
-        return v
-
-    @field_validator("rain_threshold")
-    @classmethod
-    def validate_rain_threshold(cls, v: float) -> float:
-        if math.isnan(v) or math.isinf(v) or not (0.0 <= v <= 100.0):
-            raise ValueError(f"Rain threshold must be a percentage between 0 and 100, got {v}")
-        return v
-
-    @field_validator("schedule_time")
-    @classmethod
-    def validate_schedule_time(cls, v: str) -> str:
-        if not isinstance(v, str):
-            raise ValueError("schedule_time must be a string")
-        parts = v.strip().split(":")
-        if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
-            raise ValueError(f"schedule_time must be in HH:MM format, got '{v}'")
-        h, m = int(parts[0]), int(parts[1])
-        if not (0 <= h <= 23 and 0 <= m <= 59):
-            raise ValueError(f"schedule_time must have hour 0-23 and minute 0-59, got '{v}'")
-        return f"{h:02d}:{m:02d}"
-
-    @field_validator("return_schedule_time")
-    @classmethod
-    def validate_return_schedule_time(cls, v: Optional[str]) -> Optional[str]:
-        if v is None or not str(v).strip():
-            return None
-        parts = str(v).strip().split(":")
-        if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
-            raise ValueError(f"return_schedule_time must be in HH:MM format, got '{v}'")
-        h, m = int(parts[0]), int(parts[1])
-        if not (0 <= h <= 23 and 0 <= m <= 59):
-            raise ValueError(f"return_schedule_time must have hour 0-23 and minute 0-59, got '{v}'")
-        return f"{h:02d}:{m:02d}"
-
     def __init__(self, **data):
         if "unit_system" in data and isinstance(data["unit_system"], str):
             try:
@@ -627,7 +502,9 @@ class CommuteBase(SQLModel):
             if data["days_of_week"] is None:
                 data["days_of_week"] = "mon-fri"
             else:
-                data["days_of_week"] = validate_and_normalize_days_of_week(data["days_of_week"])
+                data["days_of_week"] = validate_and_normalize_days_of_week(
+                    data["days_of_week"]
+                )
         if "waypoints" in data:
             data["waypoints"] = validate_and_sort_waypoints(data["waypoints"])
         super().__init__(**data)
@@ -648,36 +525,76 @@ class CommuteBase(SQLModel):
                 value = validate_and_sort_waypoints(value)
             else:
                 value = []
-        elif name == "schedule_time":
-            if value is not None:
-                parts = str(value).strip().split(":")
-                if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
-                    raise ValueError(f"schedule_time must be in HH:MM format, got '{value}'")
-                h, m = int(parts[0]), int(parts[1])
-                if not (0 <= h <= 23 and 0 <= m <= 59):
-                    raise ValueError(f"schedule_time must have hour 0-23 and minute 0-59, got '{value}'")
-                value = f"{h:02d}:{m:02d}"
-        elif name == "return_schedule_time":
-            if value is not None and str(value).strip():
-                parts = str(value).strip().split(":")
-                if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
-                    raise ValueError(f"return_schedule_time must be in HH:MM format, got '{value}'")
-                h, m = int(parts[0]), int(parts[1])
-                if not (0 <= h <= 23 and 0 <= m <= 59):
-                    raise ValueError(f"return_schedule_time must have hour 0-23 and minute 0-59, got '{value}'")
-                value = f"{h:02d}:{m:02d}"
-            else:
-                value = None
         super().__setattr__(name, value)
+
 
 class Commute(CommuteBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    assessment_history: List["AssessmentHistory"] = Relationship(back_populates="commute")
+    assessment_history: List["AssessmentHistory"] = Relationship(
+        back_populates="commute"
+    )
+
 
 class CommuteCreate(CommuteBase):
+    @model_validator(mode="after")
+    def validate_settings(self):
+        import math
+        import re
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        if not self.name.strip():
+            raise ValueError("Give your commute a name")
+        for name, limit in [
+            ("lat", 90),
+            ("lon", 180),
+            ("dest_lat", 90),
+            ("dest_lon", 180),
+        ]:
+            value = getattr(self, name)
+            if value is not None and (not math.isfinite(value) or abs(value) > limit):
+                raise ValueError(f"{name} must be between {-limit} and {limit}")
+        if (self.dest_lat is None) != (self.dest_lon is None):
+            raise ValueError("Choose a complete destination")
+        for name in ("schedule_time", "return_schedule_time"):
+            value = getattr(self, name)
+            if value is not None and not re.fullmatch(
+                r"(?:[01]\d|2[0-3]):[0-5]\d", value
+            ):
+                raise ValueError("Departure times must use HH:MM")
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("Choose a valid time zone")
+        values = [
+            self.min_temp_no_go,
+            self.min_temp_caution,
+            self.max_wind_caution,
+            self.max_wind_no_go,
+            self.rain_threshold,
+        ]
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError("Weather limits must be finite numbers")
+        if not all(
+            -100 <= v <= 150 for v in (self.min_temp_no_go, self.min_temp_caution)
+        ):
+            raise ValueError("Temperature limits must be between -100 and 150")
+        if self.min_temp_no_go > self.min_temp_caution:
+            raise ValueError(
+                "The avoid-riding temperature must be below the caution temperature"
+            )
+        if not 0 <= self.max_wind_caution <= self.max_wind_no_go:
+            raise ValueError("Wind limits must increase from caution to avoid riding")
+        if not 0 <= self.rain_threshold <= 100:
+            raise ValueError("Rain chance must be between 0 and 100")
+        if len(self.waypoints or []) > 8:
+            raise ValueError("Use at most 8 stops")
+        return self
+
+
+class CommuteConfig(CommuteCreate):
     id: Optional[int] = None
-    waypoints: Optional[List[Any]] = None
+
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -685,19 +602,45 @@ class User(SQLModel, table=True):
     hashed_password: str
     assessment_history: List["AssessmentHistory"] = Relationship(back_populates="user")
 
+
 class UserCreate(SQLModel):
     email: str
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value):
+        import re
+
+        value = value.strip().lower()
+        if len(value) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def valid_password(cls, value):
+        if len(value) < 8 or len(value.encode("utf-8")) > 72:
+            raise ValueError(
+                "Use at least 8 characters and no more than 72 bytes for your password"
+            )
+        return value
+
 
 class UserOut(SQLModel):
     id: int
     email: str
 
+
 class AssessmentHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
-    commute_id: Optional[int] = Field(default=None, foreign_key="commute.id", index=True, nullable=True)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    commute_id: Optional[int] = Field(
+        default=None, foreign_key="commute.id", index=True, nullable=True
+    )
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
     leg_type: Optional[str] = Field(default=None, nullable=True)
     overall_status: Optional[str] = Field(default=None, nullable=True)
     overall_score: Optional[float] = Field(default=None, nullable=True)
@@ -706,7 +649,9 @@ class AssessmentHistory(SQLModel, table=True):
     commute_type: Optional[str] = Field(default=None, nullable=True)
     commute_distance_km: Optional[float] = Field(default=0.0, nullable=True)
     duration_minutes: Optional[float] = Field(default=0.0, nullable=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
     user: Optional["User"] = Relationship(back_populates="assessment_history")
     commute: Optional["Commute"] = Relationship(back_populates="assessment_history")
@@ -716,6 +661,7 @@ class AssessmentHistory(SQLModel, table=True):
             val = data.pop("reasons")
             if isinstance(val, (list, dict)):
                 import json
+
                 data["weather_reasons"] = json.dumps(val)
             else:
                 data["weather_reasons"] = str(val) if val is not None else None
@@ -723,9 +669,11 @@ class AssessmentHistory(SQLModel, table=True):
             val = data.pop("details")
             if isinstance(val, (list, dict)):
                 import json
+
                 data["weather_details"] = json.dumps(val)
             elif hasattr(val, "model_dump"):
                 import json
+
                 data["weather_details"] = json.dumps(val.model_dump())
             else:
                 data["weather_details"] = str(val) if val is not None else None
@@ -741,6 +689,7 @@ class AssessmentHistory(SQLModel, table=True):
             return []
         try:
             import json
+
             parsed = json.loads(self.weather_reasons)
             if isinstance(parsed, list):
                 return parsed
@@ -754,7 +703,7 @@ class AssessmentHistory(SQLModel, table=True):
             return None
         try:
             import json
+
             return json.loads(self.weather_details)
         except Exception:
             return None
-

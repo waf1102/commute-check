@@ -8,11 +8,13 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.database import get_session
 from app.main import app
 from app.models import User
-from app.security import ALGORITHM, SECRET_KEY, create_access_token
+from app.security import ALGORITHM, SECRET_KEY, create_access_token, get_password_hash
 
 TEST_DB_FILE = "./test_integration_auth.db"
 DATABASE_URL = f"sqlite:///{TEST_DB_FILE}"
-engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL, echo=False, connect_args={"check_same_thread": False}
+)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -56,10 +58,15 @@ def test_registration_success(client: TestClient, session: Session):
     assert "user" in data
     assert data["user"]["email"] == "newuser@example.com"
     assert "id" in data["user"]
-    assert "hashed_password" not in data["user"] or data["user"]["hashed_password"] != "supersecurepassword"
+    assert (
+        "hashed_password" not in data["user"]
+        or data["user"]["hashed_password"] != "supersecurepassword"
+    )
 
     # Verify user exists in the database
-    db_user = session.exec(select(User).where(User.email == "newuser@example.com")).first()
+    db_user = session.exec(
+        select(User).where(User.email == "newuser@example.com")
+    ).first()
     assert db_user is not None
     assert db_user.email == "newuser@example.com"
 
@@ -78,12 +85,14 @@ def test_registration_duplicate_email_returns_400(client: TestClient):
 def test_login_json_payload_email_success(client: TestClient):
     """Test login with JSON payload {email, password} returns JWT and user info."""
     # Register first
-    client.post("/api/register", json={"email": "jsonlogin@example.com", "password": "mypassword"})
+    client.post(
+        "/api/register",
+        json={"email": "jsonlogin@example.com", "password": "mypassword"},
+    )
 
     # Login via JSON body with email field
     response = client.post(
-        "/api/login",
-        json={"email": "jsonlogin@example.com", "password": "mypassword"}
+        "/api/login", json={"email": "jsonlogin@example.com", "password": "mypassword"}
     )
     assert response.status_code == 200
     data = response.json()
@@ -96,11 +105,14 @@ def test_login_json_payload_email_success(client: TestClient):
 
 def test_login_json_payload_username_success(client: TestClient):
     """Test login with JSON payload {username, password} returns JWT and user info."""
-    client.post("/api/register", json={"email": "userlogin@example.com", "password": "mypassword"})
+    client.post(
+        "/api/register",
+        json={"email": "userlogin@example.com", "password": "mypassword"},
+    )
 
     response = client.post(
         "/api/login",
-        json={"username": "userlogin@example.com", "password": "mypassword"}
+        json={"username": "userlogin@example.com", "password": "mypassword"},
     )
     assert response.status_code == 200
     data = response.json()
@@ -110,12 +122,15 @@ def test_login_json_payload_username_success(client: TestClient):
 
 def test_login_form_data_success(client: TestClient):
     """Test login with standard OAuth2 application/x-www-form-urlencoded form data."""
-    client.post("/api/register", json={"email": "formlogin@example.com", "password": "mypassword"})
+    client.post(
+        "/api/register",
+        json={"email": "formlogin@example.com", "password": "mypassword"},
+    )
 
     response = client.post(
         "/api/login",
         data={"username": "formlogin@example.com", "password": "mypassword"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"}
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert response.status_code == 200
     data = response.json()
@@ -126,11 +141,14 @@ def test_login_form_data_success(client: TestClient):
 
 def test_login_invalid_password(client: TestClient):
     """Test login with incorrect password returns 401."""
-    client.post("/api/register", json={"email": "wrongpass@example.com", "password": "correct"})
+    registered = client.post(
+        "/api/register",
+        json={"email": "wrongpass@example.com", "password": "correct-password"},
+    )
+    assert registered.status_code == 200
 
     response = client.post(
-        "/api/login",
-        json={"email": "wrongpass@example.com", "password": "wrong"}
+        "/api/login", json={"email": "wrongpass@example.com", "password": "wrong"}
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Incorrect username or password"
@@ -139,11 +157,31 @@ def test_login_invalid_password(client: TestClient):
 def test_login_nonexistent_user(client: TestClient):
     """Test login with non-existent email returns 401."""
     response = client.post(
-        "/api/login",
-        json={"email": "nobody@example.com", "password": "somepassword"}
+        "/api/login", json={"email": "nobody@example.com", "password": "somepassword"}
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Incorrect username or password"
+
+
+def test_existing_mixed_case_account_can_still_sign_in(
+    client: TestClient, session: Session
+):
+    legacy = User(
+        email="Rider@Example.com",
+        hashed_password=get_password_hash("existing-password"),
+    )
+    session.add(legacy)
+    session.commit()
+    response = client.post(
+        "/api/login",
+        json={"email": "rider@example.com", "password": "existing-password"},
+    )
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "Rider@Example.com"
+    duplicate = client.post(
+        "/api/register", json={"email": "RIDER@example.com", "password": "new-password"}
+    )
+    assert duplicate.status_code == 400
 
 
 def test_login_missing_credentials(client: TestClient):
@@ -155,10 +193,14 @@ def test_login_missing_credentials(client: TestClient):
 
 def test_auth_me_endpoint_success(client: TestClient):
     """Test /api/auth/me and /api/me return the authenticated user record."""
-    reg = client.post("/api/register", json={"email": "profile@example.com", "password": "mypassword"})
+    reg = client.post(
+        "/api/register", json={"email": "profile@example.com", "password": "mypassword"}
+    )
     user_id = reg.json()["user"]["id"]
 
-    login_resp = client.post("/api/login", json={"email": "profile@example.com", "password": "mypassword"})
+    login_resp = client.post(
+        "/api/login", json={"email": "profile@example.com", "password": "mypassword"}
+    )
     token = login_resp.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -185,28 +227,41 @@ def test_auth_me_unauthenticated(client: TestClient):
 
 def test_auth_me_invalid_token(client: TestClient):
     """Test /api/auth/me with invalid or malformed token returns 401."""
-    response = client.get("/api/auth/me", headers={"Authorization": "Bearer invalid_malformed_token"})
+    response = client.get(
+        "/api/auth/me", headers={"Authorization": "Bearer invalid_malformed_token"}
+    )
     assert response.status_code == 401
     assert response.json()["detail"] == "Could not validate credentials"
 
 
 def test_auth_me_expired_token(client: TestClient):
     """Test /api/auth/me with expired token returns 401."""
-    client.post("/api/register", json={"email": "expired@example.com", "password": "password"})
+    client.post(
+        "/api/register", json={"email": "expired@example.com", "password": "password"}
+    )
 
     # Create expired token
-    to_encode = {"sub": "expired@example.com", "exp": datetime.now(timezone.utc) - timedelta(minutes=5)}
+    to_encode = {
+        "sub": "expired@example.com",
+        "exp": datetime.now(timezone.utc) - timedelta(minutes=5),
+    }
     expired_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-    response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
+    response = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"}
+    )
     assert response.status_code == 401
     assert response.json()["detail"] == "Could not validate credentials"
 
 
 def test_auth_me_deleted_user(client: TestClient, session: Session):
     """Test /api/auth/me when the user represented in JWT no longer exists in DB."""
-    client.post("/api/register", json={"email": "deleted@example.com", "password": "password"})
-    login_resp = client.post("/api/login", json={"email": "deleted@example.com", "password": "password"})
+    client.post(
+        "/api/register", json={"email": "deleted@example.com", "password": "password"}
+    )
+    login_resp = client.post(
+        "/api/login", json={"email": "deleted@example.com", "password": "password"}
+    )
     token = login_resp.json()["access_token"]
 
     # Delete user from DB
@@ -222,15 +277,24 @@ def test_auth_me_deleted_user(client: TestClient, session: Session):
 def test_complete_auth_session_flow(client: TestClient):
     """Complete golden-path integration test exercising full authentication and session lifecycle."""
     # 1. Register
-    reg_resp = client.post("/api/register", json={"email": "golden@example.com", "password": "SecurePassword99!"})
+    reg_resp = client.post(
+        "/api/register",
+        json={"email": "golden@example.com", "password": "SecurePassword99!"},
+    )
     assert reg_resp.status_code == 200
 
     # 2. Duplicate registration check
-    dup_resp = client.post("/api/register", json={"email": "golden@example.com", "password": "SecurePassword99!"})
+    dup_resp = client.post(
+        "/api/register",
+        json={"email": "golden@example.com", "password": "SecurePassword99!"},
+    )
     assert dup_resp.status_code == 400
 
     # 3. Login with JSON payload
-    login_resp = client.post("/api/login", json={"email": "golden@example.com", "password": "SecurePassword99!"})
+    login_resp = client.post(
+        "/api/login",
+        json={"email": "golden@example.com", "password": "SecurePassword99!"},
+    )
     assert login_resp.status_code == 200
     login_data = login_resp.json()
     token = login_data["access_token"]

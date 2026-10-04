@@ -12,7 +12,13 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool, echo=False)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+    echo=False,
+)
+
 
 @pytest.fixture(name="session")
 def session_fixture():
@@ -21,6 +27,7 @@ def session_fixture():
         yield session
     SQLModel.metadata.drop_all(engine)
 
+
 @pytest.fixture(name="client")
 def client_fixture(session: Session):
     app.dependency_overrides[get_session] = lambda: session
@@ -28,12 +35,13 @@ def client_fixture(session: Session):
     yield client
     app.dependency_overrides.clear()
 
+
 def create_user_and_token(session: Session):
     user = User(email="weather@example.com", hashed_password=get_password_hash("pass"))
     session.add(user)
     session.commit()
     session.refresh(user)
-    
+
     commute1 = Commute(
         name="Work",
         lat=40.7128,
@@ -44,7 +52,7 @@ def create_user_and_token(session: Session):
         min_temp_no_go=38.0,
         max_wind_caution=15.0,
         max_wind_no_go=25.0,
-        rain_threshold=30.0
+        rain_threshold=30.0,
     )
     commute2 = Commute(
         name="Gym",
@@ -56,7 +64,7 @@ def create_user_and_token(session: Session):
         min_temp_no_go=40.0,
         max_wind_caution=20.0,
         max_wind_no_go=30.0,
-        rain_threshold=40.0
+        rain_threshold=40.0,
     )
     session.add(commute1)
     session.add(commute2)
@@ -64,12 +72,17 @@ def create_user_and_token(session: Session):
     session.refresh(commute1)
     session.refresh(commute2)
 
-    token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
     return user, commute1, commute2, token
+
 
 def test_weather_forecast_endpoint(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
             "hourly": {
@@ -78,11 +91,13 @@ def test_weather_forecast_endpoint(client: TestClient, session: Session):
                 "apparent_temperature": [71.0, 73.0],
                 "wind_speed_10m": [8.0, 10.0],
                 "precipitation_probability": [0, 5],
-                "weather_code": [0, 0]
+                "weather_code": [0, 0],
             }
         }
-        
-        response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
+
+        response = client.get(
+            "/weather/forecast", headers={"Authorization": f"Bearer {token}"}
+        )
         assert response.status_code == 200
         data = response.json()
         assert "hourly" in data
@@ -100,9 +115,10 @@ def test_weather_forecast_endpoint(client: TestClient, session: Session):
         assert data["hourly"][0]["precip_prob"] == 0
         assert data["hourly"][0]["weather_code"] == 0
 
+
 def test_weather_forecast_with_commute_id(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
             "hourly": {
@@ -111,19 +127,23 @@ def test_weather_forecast_with_commute_id(client: TestClient, session: Session):
                 "apparent_temperature": [65.0],
                 "wind_speed_10m": [12.0],
                 "precipitation_probability": [10],
-                "weather_code": [1]
+                "weather_code": [1],
             }
         }
-        
-        response = client.get(f"/weather/forecast?commute_id={commute2.id}", headers={"Authorization": f"Bearer {token}"})
+
+        response = client.get(
+            f"/weather/forecast?commute_id={commute2.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["thresholds"]["min_temp_caution"] == 50.0
         assert data["thresholds"]["rain_threshold"] == 40.0
 
+
 def test_weather_forecast_metric_units(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
             "hourly": {
@@ -132,29 +152,36 @@ def test_weather_forecast_metric_units(client: TestClient, session: Session):
                 "apparent_temperature": [21.5],
                 "wind_speed_10m": [13.0],
                 "precipitation_probability": [0],
-                "weather_code": [0]
+                "weather_code": [0],
             }
         }
-        
-        response = client.get("/weather/forecast?unit_system=metric", headers={"Authorization": f"Bearer {token}"})
+
+        response = client.get(
+            "/weather/forecast?unit_system=metric",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["unit_system"] == "metric"
         assert data["hourly"][0]["temperature"] == 21.0
 
+
 def test_weather_forecast_service_unavailable(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.side_effect = httpx.HTTPError("Service down")
-        
-        response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
+
+        response = client.get(
+            "/weather/forecast", headers={"Authorization": f"Bearer {token}"}
+        )
         assert response.status_code == 502
         assert response.json()["detail"] == "Weather service unavailable"
 
+
 def test_weather_forecast_none_guarding(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
             "hourly": {
@@ -163,36 +190,45 @@ def test_weather_forecast_none_guarding(client: TestClient, session: Session):
                 "apparent_temperature": [None],
                 "wind_speed_10m": [None],
                 "precipitation_probability": [None],
-                "weather_code": [None]
+                "weather_code": [None],
             }
         }
-        
-        response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
-        assert response.status_code == 200
-        data = response.json()
-        assert data["hourly"][0]["temperature"] == 0.0
-        assert data["hourly"][0]["apparent_temp"] == 0.0
-        assert data["hourly"][0]["wind_speed"] == 0.0
-        assert data["hourly"][0]["precip_prob"] == 0.0
-        assert data["hourly"][0]["weather_code"] == 0
+
+        response = client.get(
+            "/weather/forecast", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Weather forecast is incomplete"
+
 
 def test_weather_forecast_no_commute(client: TestClient, session: Session):
-    user = User(email="nocommute@example.com", hashed_password=get_password_hash("pass"))
+    user = User(
+        email="nocommute@example.com", hashed_password=get_password_hash("pass")
+    )
     session.add(user)
     session.commit()
-    token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
 
-    response = client.get("/weather/forecast", headers={"Authorization": f"Bearer {token}"})
+    response = client.get(
+        "/weather/forecast", headers={"Authorization": f"Bearer {token}"}
+    )
     assert response.status_code == 404
     assert response.json()["detail"] == "Commute configuration not found"
+
 
 def test_weather_forecast_unauthenticated(client: TestClient):
     response = client.get("/weather/forecast")
     assert response.status_code == 401
 
+
 @pytest.mark.asyncio
 async def test_weather_client_caching():
     from app.client import WeatherClient
+
     client = WeatherClient()
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
         mock_response = MagicMock()
@@ -210,12 +246,15 @@ async def test_weather_client_caching():
         assert res2["hourly"]["temperature_2m"][0] == 70.0
         assert mock_get.call_count == 1  # No extra HTTP call
 
+
 from app.models import UnitSystem
+
 
 def test_get_forecast_with_destination(client: TestClient, session: Session):
     user, commute1, commute2, token = create_user_and_token(session)
-    
+
     with patch("app.client.fetch_weather", new_callable=AsyncMock) as mock_fetch:
+
         def side_effect(lat, lon, unit_system=UnitSystem.IMPERIAL):
             if lat == 37.7749:
                 return {
@@ -225,7 +264,7 @@ def test_get_forecast_with_destination(client: TestClient, session: Session):
                         "apparent_temperature": [71.0],
                         "wind_speed_10m": [8.0],
                         "precipitation_probability": [0],
-                        "weather_code": [0]
+                        "weather_code": [0],
                     }
                 }
             else:
@@ -236,14 +275,15 @@ def test_get_forecast_with_destination(client: TestClient, session: Session):
                         "apparent_temperature": [66.0],
                         "wind_speed_10m": [10.0],
                         "precipitation_probability": [5],
-                        "weather_code": [0]
+                        "weather_code": [0],
                     }
                 }
+
         mock_fetch.side_effect = side_effect
-        
+
         response = client.get(
             "/weather/forecast?lat=37.7749&lon=-122.4194&dest_lat=37.3861&dest_lon=-122.0839",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         data = response.json()

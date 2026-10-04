@@ -1,8 +1,6 @@
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-import json
-from pywebpush import webpush, WebPushException
 
 from app.database import get_session
 from app.models import User
@@ -19,10 +17,12 @@ from app.security import get_current_user
 
 router = APIRouter(prefix="/push", tags=["Push Notifications"])
 
+
 @router.get("/vapid-public-key", response_model=VapidPublicKeyResponse)
 def get_vapid_public_key(current_user: User = Depends(get_current_user)):
     _, public_key = get_or_create_vapid_keys()
     return VapidPublicKeyResponse(public_key=public_key)
+
 
 @router.get("/subscriptions", response_model=List[PushSubscription])
 @router.get("", response_model=List[PushSubscription])
@@ -36,6 +36,7 @@ def list_subscriptions(
         select(PushSubscription).where(PushSubscription.user_id == current_user.id)
     ).all()
     return subs
+
 
 @router.post("/subscribe")
 def subscribe(
@@ -66,6 +67,7 @@ def subscribe(
     session.commit()
     return {"status": "subscribed"}
 
+
 @router.delete("/unsubscribe")
 def unsubscribe(
     req: PushUnsubscribeRequest,
@@ -83,6 +85,7 @@ def unsubscribe(
         session.commit()
     return {"status": "unsubscribed"}
 
+
 @router.post("/test")
 def send_test_push(
     req: Optional[TestPushRequest] = None,
@@ -94,14 +97,26 @@ def send_test_push(
     ).all()
 
     if not subs:
-        raise HTTPException(status_code=400, detail="No push subscriptions found for user")
+        raise HTTPException(
+            status_code=400, detail="No push subscriptions found for user"
+        )
 
     title = req.title if (req and req.title) else "Commute Check Test"
-    body = req.body if (req and req.body) else "Web Push Notifications are working perfectly! 🏍️"
+    body = (
+        req.body
+        if (req and req.body)
+        else "Web Push Notifications are working perfectly! 🏍️"
+    )
     url = req.url if (req and req.url) else "/#route-visualizer"
-    has_route_hazard = req.has_route_hazard if (req and req.has_route_hazard is not None) else False
+    has_route_hazard = (
+        req.has_route_hazard if (req and req.has_route_hazard is not None) else False
+    )
     hazard_count = req.hazard_count if (req and req.hazard_count is not None) else 0
-    primary_hazard_location = req.primary_hazard_location if (req and req.primary_hazard_location is not None) else ""
+    primary_hazard_location = (
+        req.primary_hazard_location
+        if (req and req.primary_hazard_location is not None)
+        else ""
+    )
 
     extra_data = dict(req.extra_data) if (req and req.extra_data) else {}
     if req and req.hazard_pinpoints:

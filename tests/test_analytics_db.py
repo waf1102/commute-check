@@ -3,6 +3,7 @@ from sqlmodel import create_engine, Session, SQLModel
 from app.models import User, AssessmentHistory
 from datetime import datetime, timedelta, timezone
 
+
 # In-memory SQLite database for testing
 @pytest.fixture(name="session")
 def session_fixture():
@@ -10,7 +11,8 @@ def session_fixture():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
-    SQLModel.metadata.drop_all(engine) # Clean up after tests
+    SQLModel.metadata.drop_all(engine)  # Clean up after tests
+
 
 def test_store_and_retrieve_assessment_history(session: Session):
     # Create a test user
@@ -42,7 +44,9 @@ def test_store_and_retrieve_assessment_history(session: Session):
 
     assert retrieved_assessment is not None
     assert retrieved_assessment.user_id == user.id
-    assert retrieved_assessment.timestamp.isoformat() == assessment_time.isoformat() # Compare ISO format due to potential microsecond differences
+    assert (
+        retrieved_assessment.timestamp.isoformat() == assessment_time.isoformat()
+    )  # Compare ISO format due to potential microsecond differences
     assert retrieved_assessment.commute_type == "driving"
     assert retrieved_assessment.commute_distance_km == 10.5
     assert retrieved_assessment.duration_minutes == 20.0
@@ -50,6 +54,7 @@ def test_store_and_retrieve_assessment_history(session: Session):
 
     # Test relationship
     assert retrieved_assessment.user.email == user.email
+
 
 def test_store_and_retrieve_extended_assessment_history(session: Session):
     from app.models import Commute, AssessmentResult, Status, HourlyWeather
@@ -65,7 +70,7 @@ def test_store_and_retrieve_extended_assessment_history(session: Session):
         lat=37.77,
         lon=-122.41,
         schedule_time="08:00",
-        user_id=user.id
+        user_id=user.id,
     )
     session.add(commute)
     session.commit()
@@ -77,14 +82,14 @@ def test_store_and_retrieve_extended_assessment_history(session: Session):
         wind_speed=8.0,
         wind_gusts=12.0,
         precip_prob=10.0,
-        weather_code=0
+        weather_code=0,
     )
     assessment = AssessmentResult(
         status=Status.GO,
         score=95,
         reasons=["Clear conditions", "Comfortable temperature"],
         recommendation="Great ride!",
-        details=weather
+        details=weather,
     )
 
     history = record_assessment_run(
@@ -92,7 +97,7 @@ def test_store_and_retrieve_extended_assessment_history(session: Session):
         user_id=user.id,
         commute_id=commute.id,
         assessment=assessment,
-        leg_type="outbound"
+        leg_type="outbound",
     )
 
     assert history.id is not None
@@ -105,4 +110,3 @@ def test_store_and_retrieve_extended_assessment_history(session: Session):
     assert "Clear conditions" in history.reasons
     assert history.details["temperature"] == 65.0
     assert history.commute.name == "Test Commute"
-

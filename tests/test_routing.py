@@ -51,7 +51,9 @@ def client_fixture(session: Session):
 
 @pytest.fixture
 def auth_headers(session: Session):
-    user = User(email="routing_user@example.com", hashed_password=get_password_hash("pass"))
+    user = User(
+        email="routing_user@example.com", hashed_password=get_password_hash("pass")
+    )
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -62,6 +64,7 @@ def auth_headers(session: Session):
 # =====================================================================
 # 1. Unit Tests: Haversine & Coordinate Parsing
 # =====================================================================
+
 
 def test_haversine_distance_known_coordinates():
     # Equator 0 to 1 degree longitude: approx 111.19 km
@@ -79,7 +82,10 @@ def test_parse_coordinate_various_formats():
 
     # Dict with lat / lon
     assert parse_coordinate({"lat": 37.77, "lon": -122.41}) == (37.77, -122.41)
-    assert parse_coordinate({"latitude": 37.77, "longitude": -122.41}) == (37.77, -122.41)
+    assert parse_coordinate({"latitude": 37.77, "longitude": -122.41}) == (
+        37.77,
+        -122.41,
+    )
     assert parse_coordinate({"lat": 37.77, "lng": -122.41}) == (37.77, -122.41)
 
     # Object / Waypoint
@@ -123,6 +129,7 @@ def test_sort_and_parse_waypoints():
 # =====================================================================
 # 2. Unit Tests: OSRM Response Parsing & Route Directions
 # =====================================================================
+
 
 @pytest.mark.asyncio
 async def test_osrm_response_parsing_success():
@@ -181,12 +188,15 @@ async def test_osrm_response_parsing_success():
 # 3. Unit Tests: Error Handling & Haversine Linear Fallback
 # =====================================================================
 
+
 @pytest.mark.asyncio
 async def test_fallback_when_osrm_times_out():
     origin = (37.77, -122.41)
     destination = (37.78, -122.42)
 
-    with patch("httpx.AsyncClient.get", side_effect=httpx.TimeoutException("OSRM timed out")):
+    with patch(
+        "httpx.AsyncClient.get", side_effect=httpx.TimeoutException("OSRM timed out")
+    ):
         service = RoutingService()
         result = await service.get_route_directions(origin, destination)
 
@@ -256,6 +266,7 @@ def test_haversine_fallback_multi_waypoint_calculations():
 # 4. Integration Tests: Waypoints Persistence & Schema Validation
 # =====================================================================
 
+
 def test_waypoint_model_validation():
     # Valid waypoint
     wp = Waypoint(name="Valid Stop", lat=45.0, lon=90.0, order=1)
@@ -315,7 +326,9 @@ def test_commute_waypoints_sorting_and_persistence(session: Session):
     assert isinstance(saved.waypoints[0], Waypoint)
 
 
-def test_config_endpoints_waypoints_serialization(client: TestClient, auth_headers: tuple):
+def test_config_endpoints_waypoints_serialization(
+    client: TestClient, auth_headers: tuple
+):
     headers, user = auth_headers
 
     payload = {
@@ -362,9 +375,7 @@ def test_config_endpoints_waypoints_serialization(client: TestClient, auth_heade
         "lat": 37.7749,
         "lon": -122.4194,
         "schedule_time": "08:00",
-        "waypoints": [
-            {"name": "Gym", "lat": 37.790, "lon": -122.400, "order": 1}
-        ],
+        "waypoints": [{"name": "Gym", "lat": 37.790, "lon": -122.400, "order": 1}],
     }
     update_res = client.post("/config", json=update_payload, headers=headers)
     assert update_res.status_code == 200
@@ -376,6 +387,7 @@ def test_config_endpoints_waypoints_serialization(client: TestClient, auth_heade
 # =====================================================================
 # 5. Route Directions API Endpoint Tests
 # =====================================================================
+
 
 def test_api_route_directions_endpoint_success(client: TestClient):
     mock_osrm_json = {
@@ -417,11 +429,15 @@ def test_api_route_directions_endpoint_success(client: TestClient):
 
 
 def test_api_route_directions_endpoint_fallback(client: TestClient):
-    with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectError("Connection failed")):
+    with patch(
+        "httpx.AsyncClient.get", side_effect=httpx.ConnectError("Connection failed")
+    ):
         payload = {
             "origin": [37.77, -122.41],
             "destination": [37.78, -122.42],
-            "waypoints": [{"lat": 37.775, "lon": -122.415, "order": 1, "name": "Midpoint"}],
+            "waypoints": [
+                {"lat": 37.775, "lon": -122.415, "order": 1, "name": "Midpoint"}
+            ],
         }
         res = client.post("/api/route/directions", json=payload)
         assert res.status_code == 200

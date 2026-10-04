@@ -56,7 +56,9 @@ def make_user(session: Session, email: str = "user@example.com") -> tuple[User, 
     session.refresh(user)
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=60)
-    token = jwt.encode({"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM
+    )
     headers = {"Authorization": f"Bearer {token}"}
     return user, headers
 
@@ -65,7 +67,10 @@ def make_user(session: Session, email: str = "user@example.com") -> tuple[User, 
 # 1. Full CRUD & Route Aliases Integration Test
 # ============================================================================
 
-def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session: Session):
+
+def test_commute_crud_lifecycle_across_route_aliases(
+    client: TestClient, session: Session
+):
     """
     Verify full CRUD lifecycle across all registered route aliases:
     /config, /api/config, /commutes, /api/commutes, /commute, /api/commute
@@ -84,9 +89,23 @@ def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session
         "return_schedule_time": "17:30",
         "days_of_week": "mon-fri",
         "waypoints": [
-            {"id": "wp-1", "name": "Coffee Stop", "lat": 37.7800, "lon": -122.4100, "order": 0, "status": "active"},
-            {"id": "wp-2", "name": "Park View", "lat": 37.7850, "lon": -122.4050, "order": 1, "status": "active"},
-        ]
+            {
+                "id": "wp-1",
+                "name": "Coffee Stop",
+                "lat": 37.7800,
+                "lon": -122.4100,
+                "order": 0,
+                "status": "active",
+            },
+            {
+                "id": "wp-2",
+                "name": "Park View",
+                "lat": 37.7850,
+                "lon": -122.4050,
+                "order": 1,
+                "status": "active",
+            },
+        ],
     }
 
     create_resp = client.post("/api/commutes", json=create_payload, headers=headers)
@@ -99,7 +118,14 @@ def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session
     assert created["waypoints"][0]["name"] == "Coffee Stop"
 
     # 2. Test GET list across all route aliases: /config, /api/config, /commutes, /api/commutes, /commute, /api/commute
-    for endpoint in ["/config", "/api/config", "/commutes", "/api/commutes", "/commute", "/api/commute"]:
+    for endpoint in [
+        "/config",
+        "/api/config",
+        "/commutes",
+        "/api/commutes",
+        "/commute",
+        "/api/commute",
+    ]:
         list_resp = client.get(endpoint, headers=headers)
         assert list_resp.status_code == 200, f"Failed at {endpoint}: {list_resp.text}"
         data = list_resp.json()
@@ -108,7 +134,14 @@ def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session
         assert data[0]["name"] == "Morning Ride"
 
     # 3. Test GET single commute across all route aliases
-    for endpoint in [f"/commutes/{cid}", f"/api/commutes/{cid}", f"/config/{cid}", f"/api/config/{cid}", f"/commute/{cid}", f"/api/commute/{cid}"]:
+    for endpoint in [
+        f"/commutes/{cid}",
+        f"/api/commutes/{cid}",
+        f"/config/{cid}",
+        f"/api/config/{cid}",
+        f"/commute/{cid}",
+        f"/api/commute/{cid}",
+    ]:
         get_resp = client.get(endpoint, headers=headers)
         assert get_resp.status_code == 200, f"Failed at {endpoint}: {get_resp.text}"
         commute_item = get_resp.json()
@@ -128,7 +161,9 @@ def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session
     config_update_payload = dict(update_payload)
     config_update_payload["id"] = cid
     config_update_payload["name"] = "Updated Via Config"
-    post_config_resp = client.post("/config", json=config_update_payload, headers=headers)
+    post_config_resp = client.post(
+        "/config", json=config_update_payload, headers=headers
+    )
     assert post_config_resp.status_code == 200, post_config_resp.text
     assert post_config_resp.json()["name"] == "Updated Via Config"
     assert post_config_resp.json()["id"] == cid
@@ -155,6 +190,7 @@ def test_commute_crud_lifecycle_across_route_aliases(client: TestClient, session
 # 2. Waypoint Persistence, Reordering, and CRUD Lifecycle
 # ============================================================================
 
+
 def test_waypoints_persistence_and_reordering(client: TestClient, session: Session):
     """
     Verify that adding, updating, reordering, and deleting waypoints correctly
@@ -164,16 +200,37 @@ def test_waypoints_persistence_and_reordering(client: TestClient, session: Sessi
 
     # Step 1: Create commute with 3 waypoints
     initial_waypoints = [
-        {"id": "wp-101", "name": "Alpha Stop", "lat": 40.7100, "lon": -74.0100, "order": 0, "status": "pending"},
-        {"id": "wp-102", "name": "Beta Stop", "lat": 40.7200, "lon": -74.0050, "order": 1, "status": "pending"},
-        {"id": "wp-103", "name": "Gamma Stop", "lat": 40.7300, "lon": -74.0000, "order": 2, "status": "pending"},
+        {
+            "id": "wp-101",
+            "name": "Alpha Stop",
+            "lat": 40.7100,
+            "lon": -74.0100,
+            "order": 0,
+            "status": "pending",
+        },
+        {
+            "id": "wp-102",
+            "name": "Beta Stop",
+            "lat": 40.7200,
+            "lon": -74.0050,
+            "order": 1,
+            "status": "pending",
+        },
+        {
+            "id": "wp-103",
+            "name": "Gamma Stop",
+            "lat": 40.7300,
+            "lon": -74.0000,
+            "order": 2,
+            "status": "pending",
+        },
     ]
     payload = {
         "name": "Waypoint Commute",
         "lat": 40.7000,
         "lon": -74.0200,
         "schedule_time": "08:30",
-        "waypoints": initial_waypoints
+        "waypoints": initial_waypoints,
     }
 
     create_res = client.post("/api/commutes", json=payload, headers=headers)
@@ -186,39 +243,97 @@ def test_waypoints_persistence_and_reordering(client: TestClient, session: Sessi
     db_commute = session.get(Commute, cid)
     assert db_commute is not None
     assert len(db_commute.waypoints) == 3
-    assert [w.name for w in db_commute.waypoints] == ["Alpha Stop", "Beta Stop", "Gamma Stop"]
+    assert [w.name for w in db_commute.waypoints] == [
+        "Alpha Stop",
+        "Beta Stop",
+        "Gamma Stop",
+    ]
     assert [w.order for w in db_commute.waypoints] == [0, 1, 2]
     assert db_commute.waypoints[0].id == "wp-101"
     assert db_commute.waypoints[0].status == "pending"
 
     # Step 2: Reorder waypoints (Gamma -> Alpha -> Beta)
     reordered_waypoints = [
-        {"id": "wp-103", "name": "Gamma Stop", "lat": 40.7300, "lon": -74.0000, "order": 0, "status": "pending"},
-        {"id": "wp-101", "name": "Alpha Stop", "lat": 40.7100, "lon": -74.0100, "order": 1, "status": "pending"},
-        {"id": "wp-102", "name": "Beta Stop", "lat": 40.7200, "lon": -74.0050, "order": 2, "status": "pending"},
+        {
+            "id": "wp-103",
+            "name": "Gamma Stop",
+            "lat": 40.7300,
+            "lon": -74.0000,
+            "order": 0,
+            "status": "pending",
+        },
+        {
+            "id": "wp-101",
+            "name": "Alpha Stop",
+            "lat": 40.7100,
+            "lon": -74.0100,
+            "order": 1,
+            "status": "pending",
+        },
+        {
+            "id": "wp-102",
+            "name": "Beta Stop",
+            "lat": 40.7200,
+            "lon": -74.0050,
+            "order": 2,
+            "status": "pending",
+        },
     ]
     update_payload = dict(payload)
     update_payload["waypoints"] = reordered_waypoints
 
-    update_res = client.put(f"/api/commutes/{cid}", json=update_payload, headers=headers)
+    update_res = client.put(
+        f"/api/commutes/{cid}", json=update_payload, headers=headers
+    )
     assert update_res.status_code == 200, update_res.text
     updated = update_res.json()
-    assert [w["name"] for w in updated["waypoints"]] == ["Gamma Stop", "Alpha Stop", "Beta Stop"]
+    assert [w["name"] for w in updated["waypoints"]] == [
+        "Gamma Stop",
+        "Alpha Stop",
+        "Beta Stop",
+    ]
     assert [w["order"] for w in updated["waypoints"]] == [0, 1, 2]
 
     # Verify retrieved from GET endpoint
     get_res = client.get(f"/api/commutes/{cid}", headers=headers)
     assert get_res.status_code == 200
-    assert [w["name"] for w in get_res.json()["waypoints"]] == ["Gamma Stop", "Alpha Stop", "Beta Stop"]
+    assert [w["name"] for w in get_res.json()["waypoints"]] == [
+        "Gamma Stop",
+        "Alpha Stop",
+        "Beta Stop",
+    ]
 
     # Step 3: Modify waypoint details (change Beta Stop to Delta Stop with new coordinates)
     modified_waypoints = [
-        {"id": "wp-103", "name": "Gamma Stop", "lat": 40.7300, "lon": -74.0000, "order": 0, "status": "pending"},
-        {"id": "wp-101", "name": "Alpha Stop", "lat": 40.7100, "lon": -74.0100, "order": 1, "status": "pending"},
-        {"id": "wp-104", "name": "Delta Stop", "lat": 40.7450, "lon": -73.9900, "order": 2, "status": "verified"},
+        {
+            "id": "wp-103",
+            "name": "Gamma Stop",
+            "lat": 40.7300,
+            "lon": -74.0000,
+            "order": 0,
+            "status": "pending",
+        },
+        {
+            "id": "wp-101",
+            "name": "Alpha Stop",
+            "lat": 40.7100,
+            "lon": -74.0100,
+            "order": 1,
+            "status": "pending",
+        },
+        {
+            "id": "wp-104",
+            "name": "Delta Stop",
+            "lat": 40.7450,
+            "lon": -73.9900,
+            "order": 2,
+            "status": "verified",
+        },
     ]
     update_payload["waypoints"] = modified_waypoints
-    put_mod_res = client.put(f"/api/commutes/{cid}", json=update_payload, headers=headers)
+    put_mod_res = client.put(
+        f"/api/commutes/{cid}", json=update_payload, headers=headers
+    )
     assert put_mod_res.status_code == 200
     assert put_mod_res.json()["waypoints"][2]["name"] == "Delta Stop"
     assert put_mod_res.json()["waypoints"][2]["lat"] == 40.7450
@@ -226,7 +341,9 @@ def test_waypoints_persistence_and_reordering(client: TestClient, session: Sessi
 
     # Step 4: Clear all waypoints (delete waypoints by sending empty list)
     update_payload["waypoints"] = []
-    put_clear_res = client.put(f"/api/commutes/{cid}", json=update_payload, headers=headers)
+    put_clear_res = client.put(
+        f"/api/commutes/{cid}", json=update_payload, headers=headers
+    )
     assert put_clear_res.status_code == 200
     assert put_clear_res.json()["waypoints"] == []
 
@@ -237,10 +354,18 @@ def test_waypoints_persistence_and_reordering(client: TestClient, session: Sessi
 
     # Step 5: Add a new waypoint to previously cleared commute
     new_single_waypoint = [
-        {"id": "wp-fresh", "name": "Fresh Waypoint", "lat": 40.7500, "lon": -73.9800, "order": 0}
+        {
+            "id": "wp-fresh",
+            "name": "Fresh Waypoint",
+            "lat": 40.7500,
+            "lon": -73.9800,
+            "order": 0,
+        }
     ]
     update_payload["waypoints"] = new_single_waypoint
-    put_fresh_res = client.put(f"/api/commutes/{cid}", json=update_payload, headers=headers)
+    put_fresh_res = client.put(
+        f"/api/commutes/{cid}", json=update_payload, headers=headers
+    )
     assert put_fresh_res.status_code == 200
     assert len(put_fresh_res.json()["waypoints"]) == 1
     assert put_fresh_res.json()["waypoints"][0]["name"] == "Fresh Waypoint"
@@ -249,6 +374,7 @@ def test_waypoints_persistence_and_reordering(client: TestClient, session: Sessi
 # ============================================================================
 # 3. Schedule Normalization Integration Test
 # ============================================================================
+
 
 def test_days_of_week_schedule_normalization(client: TestClient, session: Session):
     """
@@ -275,10 +401,12 @@ def test_days_of_week_schedule_normalization(client: TestClient, session: Sessio
             "lat": 51.5074,
             "lon": -0.1278,
             "schedule_time": "08:00",
-            "days_of_week": input_val
+            "days_of_week": input_val,
         }
         res = client.post("/api/commutes", json=payload, headers=headers)
-        assert res.status_code == 200, f"Failed on valid days_of_week '{input_val}': {res.text}"
+        assert res.status_code == 200, (
+            f"Failed on valid days_of_week '{input_val}': {res.text}"
+        )
         data = res.json()
         assert data["days_of_week"] == expected_val
 
@@ -298,15 +426,18 @@ def test_days_of_week_schedule_normalization(client: TestClient, session: Sessio
             "lat": 51.5074,
             "lon": -0.1278,
             "schedule_time": "08:00",
-            "days_of_week": invalid_val
+            "days_of_week": invalid_val,
         }
         res = client.post("/api/commutes", json=payload, headers=headers)
-        assert res.status_code == 422, f"Should have rejected invalid days_of_week '{invalid_val}'"
+        assert res.status_code == 422, (
+            f"Should have rejected invalid days_of_week '{invalid_val}'"
+        )
 
 
 # ============================================================================
 # 4. Realistic Threshold Validations Integration Test
 # ============================================================================
+
 
 def test_threshold_and_coordinate_validations(client: TestClient, session: Session):
     """
@@ -358,20 +489,28 @@ def test_threshold_and_coordinate_validations(client: TestClient, session: Sessi
 
     # Invalid coordinates (lat < -90 or > 90, lon < -180 or > 180)
     bad_lat = dict(valid_payload, lat=95.0)
-    assert client.post("/api/commutes", json=bad_lat, headers=headers).status_code == 422
+    assert (
+        client.post("/api/commutes", json=bad_lat, headers=headers).status_code == 422
+    )
 
     bad_lon = dict(valid_payload, lon=-190.0)
-    assert client.post("/api/commutes", json=bad_lon, headers=headers).status_code == 422
+    assert (
+        client.post("/api/commutes", json=bad_lon, headers=headers).status_code == 422
+    )
 
     # Invalid schedule_time format
     for bad_time in ["25:00", "08:60", "invalid", "8am"]:
         bad_schedule = dict(valid_payload, schedule_time=bad_time)
-        assert client.post("/api/commutes", json=bad_schedule, headers=headers).status_code == 422
+        assert (
+            client.post("/api/commutes", json=bad_schedule, headers=headers).status_code
+            == 422
+        )
 
 
 # ============================================================================
 # 5. Multi-Commute User Isolation Integration Test
 # ============================================================================
+
 
 def test_multi_commute_user_isolation(client: TestClient, session: Session):
     """
@@ -386,7 +525,7 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
         "name": "Alice Commute",
         "lat": 37.77,
         "lon": -122.41,
-        "schedule_time": "08:00"
+        "schedule_time": "08:00",
     }
     res_a = client.post("/api/commutes", json=payload_a, headers=headers_a)
     assert res_a.status_code == 200
@@ -397,7 +536,7 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
         "name": "Bob Commute",
         "lat": 40.71,
         "lon": -74.00,
-        "schedule_time": "09:00"
+        "schedule_time": "09:00",
     }
     res_b = client.post("/api/commutes", json=payload_b, headers=headers_b)
     assert res_b.status_code == 200
@@ -427,8 +566,13 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
     # Alice trying to update Bob's commute via PUT
     res_a_put_b = client.put(
         f"/api/commutes/{cid_b}",
-        json={"name": "Alice Hacked Bob", "lat": 1.0, "lon": 1.0, "schedule_time": "12:00"},
-        headers=headers_a
+        json={
+            "name": "Alice Hacked Bob",
+            "lat": 1.0,
+            "lon": 1.0,
+            "schedule_time": "12:00",
+        },
+        headers=headers_a,
     )
     assert res_a_put_b.status_code == 404
 
@@ -440,8 +584,14 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
     # Alice trying to update Bob's commute via POST /config with Bob's id
     res_a_post_b = client.post(
         "/config",
-        json={"id": cid_b, "name": "Alice Hijack Bob", "lat": 1.0, "lon": 1.0, "schedule_time": "12:00"},
-        headers=headers_a
+        json={
+            "id": cid_b,
+            "name": "Alice Hijack Bob",
+            "lat": 1.0,
+            "lon": 1.0,
+            "schedule_time": "12:00",
+        },
+        headers=headers_a,
     )
     assert res_a_post_b.status_code == 404
 
@@ -461,7 +611,7 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
         "lat": 37.77,
         "lon": -122.41,
         "schedule_time": "08:30",
-        "user_id": user_b.id
+        "user_id": user_b.id,
     }
     spoof_res = client.post("/api/commutes", json=spoof_payload, headers=headers_a)
     assert spoof_res.status_code == 200
@@ -472,6 +622,7 @@ def test_multi_commute_user_isolation(client: TestClient, session: Session):
 # ============================================================================
 # 6. Scheduler Job Synchronization Integration Test
 # ============================================================================
+
 
 def test_scheduler_synchronization_lifecycle(client: TestClient, session: Session):
     """
@@ -490,7 +641,7 @@ def test_scheduler_synchronization_lifecycle(client: TestClient, session: Sessio
         "dest_lon": -122.4094,
         "schedule_time": "08:15",
         "return_schedule_time": "17:45",
-        "days_of_week": "mon-fri"
+        "days_of_week": "mon-fri",
     }
 
     create_res = client.post("/api/commutes", json=payload, headers=headers)
@@ -515,7 +666,9 @@ def test_scheduler_synchronization_lifecycle(client: TestClient, session: Sessio
     updated_payload["schedule_time"] = "09:30"
     updated_payload["return_schedule_time"] = "18:00"
 
-    update_res = client.put(f"/api/commutes/{cid}", json=updated_payload, headers=headers)
+    update_res = client.put(
+        f"/api/commutes/{cid}", json=updated_payload, headers=headers
+    )
     assert update_res.status_code == 200
 
     updated_out = scheduler.get_job(f"commute_check_{cid}_outbound")

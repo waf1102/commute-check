@@ -16,7 +16,9 @@ from app.push.models import PushSubscription
 from app.security import ALGORITHM, SECRET_KEY, get_password_hash
 
 INTEG_DB_URL = "sqlite:///./test_integration_push_scheduler.db"
-integ_engine = create_engine(INTEG_DB_URL, echo=False, connect_args={"check_same_thread": False})
+integ_engine = create_engine(
+    INTEG_DB_URL, echo=False, connect_args={"check_same_thread": False}
+)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -57,14 +59,18 @@ def client_fixture(session: Session):
     app.dependency_overrides.clear()
 
 
-def create_user_and_token(session: Session, email: str = "rider_push@example.com") -> tuple[User, str, dict]:
+def create_user_and_token(
+    session: Session, email: str = "rider_push@example.com"
+) -> tuple[User, str, dict]:
     user = User(email=email, hashed_password=get_password_hash("securepass123"))
     session.add(user)
     session.commit()
     session.refresh(user)
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=60)
-    token = jwt.encode({"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM
+    )
     headers = {"Authorization": f"Bearer {token}"}
     return user, token, headers
 
@@ -72,6 +78,7 @@ def create_user_and_token(session: Session, email: str = "rider_push@example.com
 # =========================================================================
 # 1. Push Router Prefix Mismatch & Endpoint Verification
 # =========================================================================
+
 
 def test_api_push_endpoints_return_200_no_404(client: TestClient, session: Session):
     """
@@ -89,7 +96,7 @@ def test_api_push_endpoints_return_200_no_404(client: TestClient, session: Sessi
     sub_payload = {
         "endpoint": "https://push.example.com/api/devices/dev-1",
         "keys": {"p256dh": "p256dh_key_data", "auth": "auth_key_data"},
-        "user_agent": "IntegrationTestBrowser/1.0"
+        "user_agent": "IntegrationTestBrowser/1.0",
     }
     res_sub = client.post("/api/push/subscribe", json=sub_payload, headers=headers)
     assert res_sub.status_code == 200
@@ -112,7 +119,9 @@ def test_api_push_endpoints_return_200_no_404(client: TestClient, session: Sessi
 
     # 5. DELETE /api/push/unsubscribe
     unsub_payload = {"endpoint": "https://push.example.com/api/devices/dev-1"}
-    res_unsub = client.request("DELETE", "/api/push/unsubscribe", json=unsub_payload, headers=headers)
+    res_unsub = client.request(
+        "DELETE", "/api/push/unsubscribe", json=unsub_payload, headers=headers
+    )
     assert res_unsub.status_code == 200
     assert res_unsub.json() == {"status": "unsubscribed"}
 
@@ -124,15 +133,27 @@ def test_api_push_endpoints_return_200_no_404(client: TestClient, session: Sessi
 def test_api_push_requires_authentication(client: TestClient):
     """Verify push endpoints reject unauthenticated requests."""
     assert client.get("/api/push/vapid-public-key").status_code == 401
-    assert client.post("/api/push/subscribe", json={"endpoint": "a", "keys": {"p256dh": "b", "auth": "c"}}).status_code == 401
+    assert (
+        client.post(
+            "/api/push/subscribe",
+            json={"endpoint": "a", "keys": {"p256dh": "b", "auth": "c"}},
+        ).status_code
+        == 401
+    )
     assert client.get("/api/push/subscriptions").status_code == 401
-    assert client.request("DELETE", "/api/push/unsubscribe", json={"endpoint": "a"}).status_code == 401
+    assert (
+        client.request(
+            "DELETE", "/api/push/unsubscribe", json={"endpoint": "a"}
+        ).status_code
+        == 401
+    )
     assert client.post("/api/push/test").status_code == 401
 
 
 # =========================================================================
 # 2. Push Subscription Lifecycle, Persistence & Error Handling
 # =========================================================================
+
 
 def test_push_subscription_persistence_and_update(client: TestClient, session: Session):
     """
@@ -145,13 +166,17 @@ def test_push_subscription_persistence_and_update(client: TestClient, session: S
     sub_payload = {
         "endpoint": "https://push.example.com/endpoint_alpha",
         "keys": {"p256dh": "initial_p256dh", "auth": "initial_auth"},
-        "user_agent": "Mozilla/5.0 (X11; Linux x86_64)"
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64)",
     }
     res = client.post("/api/push/subscribe", json=sub_payload, headers=headers)
     assert res.status_code == 200
 
     # Verify directly in SQLite
-    db_sub = session.exec(select(PushSubscription).where(PushSubscription.endpoint == sub_payload["endpoint"])).first()
+    db_sub = session.exec(
+        select(PushSubscription).where(
+            PushSubscription.endpoint == sub_payload["endpoint"]
+        )
+    ).first()
     assert db_sub is not None
     assert db_sub.user_id == user.id
     assert db_sub.p256dh == "initial_p256dh"
@@ -163,13 +188,19 @@ def test_push_subscription_persistence_and_update(client: TestClient, session: S
     updated_payload = {
         "endpoint": "https://push.example.com/endpoint_alpha",
         "keys": {"p256dh": "rotated_p256dh", "auth": "rotated_auth"},
-        "user_agent": "Mozilla/5.0 UpdatedBrowser"
+        "user_agent": "Mozilla/5.0 UpdatedBrowser",
     }
-    res_update = client.post("/api/push/subscribe", json=updated_payload, headers=headers)
+    res_update = client.post(
+        "/api/push/subscribe", json=updated_payload, headers=headers
+    )
     assert res_update.status_code == 200
 
     # Verify updated in DB without duplicates
-    subs = session.exec(select(PushSubscription).where(PushSubscription.endpoint == sub_payload["endpoint"])).all()
+    subs = session.exec(
+        select(PushSubscription).where(
+            PushSubscription.endpoint == sub_payload["endpoint"]
+        )
+    ).all()
     assert len(subs) == 1
     assert subs[0].p256dh == "rotated_p256dh"
     assert subs[0].auth == "rotated_auth"
@@ -238,7 +269,9 @@ def test_push_pruning_on_410_gone_and_404_not_found(session: Session):
         assert results["failed"] == 2
 
     # Verify dead subscriptions were pruned and valid one remains
-    remaining = session.exec(select(PushSubscription).where(PushSubscription.user_id == user.id)).all()
+    remaining = session.exec(
+        select(PushSubscription).where(PushSubscription.user_id == user.id)
+    ).all()
     endpoints = [s.endpoint for s in remaining]
     assert "https://push.example.com/expired-410" not in endpoints
     assert "https://push.example.com/dead-404" not in endpoints
@@ -266,7 +299,10 @@ def test_push_pruning_on_string_exception_format(session: Session):
     session.add(sub)
     session.commit()
 
-    with patch("app.notifications.webpush", side_effect=WebPushException("Response 410 Gone from push service")):
+    with patch(
+        "app.notifications.webpush",
+        side_effect=WebPushException("Response 410 Gone from push service"),
+    ):
         results = dispatch_web_push_notification(
             user_id=user.id,
             title="Prune String Test",
@@ -275,27 +311,35 @@ def test_push_pruning_on_string_exception_format(session: Session):
         )
         assert results["failed"] == 1
 
-    remaining = session.exec(select(PushSubscription).where(PushSubscription.endpoint == sub.endpoint)).first()
+    remaining = session.exec(
+        select(PushSubscription).where(PushSubscription.endpoint == sub.endpoint)
+    ).first()
     assert remaining is None
 
 
-def test_api_push_test_with_localized_hazard_details(client: TestClient, session: Session):
+def test_api_push_test_with_localized_hazard_details(
+    client: TestClient, session: Session
+):
     """
     Ensure POST /api/push/test sends a test payload with localized hazard details when requested.
     """
     _, _, headers = create_user_and_token(session, "hazard_test_user@example.com")
 
     # Subscribe
-    client.post("/api/push/subscribe", json={
-        "endpoint": "https://push.example.com/hazard_subscriber",
-        "keys": {"p256dh": "dh_h", "auth": "au_h"}
-    }, headers=headers)
+    client.post(
+        "/api/push/subscribe",
+        json={
+            "endpoint": "https://push.example.com/hazard_subscriber",
+            "keys": {"p256dh": "dh_h", "auth": "au_h"},
+        },
+        headers=headers,
+    )
 
     hazard_pinpoint = {
         "location": "Bay Bridge Tower 2",
         "hazard": "Severe crosswinds",
         "value": "35 mph",
-        "time": "08:20 AM"
+        "time": "08:20 AM",
     }
 
     test_request_data = {
@@ -329,7 +373,10 @@ def test_api_push_test_with_localized_hazard_details(client: TestClient, session
 # 3. APScheduler Background Commute Checks & Dual-Leg Execution
 # =========================================================================
 
-def test_apscheduler_dual_leg_registration_and_update(client: TestClient, session: Session):
+
+def test_apscheduler_dual_leg_registration_and_update(
+    client: TestClient, session: Session
+):
     """
     Verify APScheduler dual-leg job registration:
     - Commute creation registers outbound and return cron jobs.
@@ -349,7 +396,7 @@ def test_apscheduler_dual_leg_registration_and_update(client: TestClient, sessio
         "schedule_time": "08:15",
         "return_schedule_time": "17:45",
         "days_of_week": "mon-fri",
-        "unit_system": "imperial"
+        "unit_system": "imperial",
     }
     create_res = client.post("/api/commutes", json=commute_payload, headers=headers)
     assert create_res.status_code == 200
@@ -374,7 +421,9 @@ def test_apscheduler_dual_leg_registration_and_update(client: TestClient, sessio
     updated_payload = dict(commute_payload)
     updated_payload["schedule_time"] = "09:00"
     updated_payload["return_schedule_time"] = "18:30"
-    update_res = client.put(f"/api/commutes/{commute_id}", json=updated_payload, headers=headers)
+    update_res = client.put(
+        f"/api/commutes/{commute_id}", json=updated_payload, headers=headers
+    )
     assert update_res.status_code == 200
 
     outbound_job = scheduler.get_job(outbound_job_id)
@@ -418,7 +467,7 @@ async def test_run_commute_check_dual_leg_execution_end_to_end(session: Session)
         schedule_time="07:45",
         return_schedule_time="16:30",
         webhook_url="https://webhook.example.com/alerts",
-        unit_system=UnitSystem.IMPERIAL
+        unit_system=UnitSystem.IMPERIAL,
     )
     session.add(commute)
 
@@ -427,29 +476,28 @@ async def test_run_commute_check_dual_leg_execution_end_to_end(session: Session)
         user_id=user.id,
         endpoint="https://push.example.com/sched_e2e_device",
         p256dh="dh_sched",
-        auth="auth_sched"
+        auth="auth_sched",
     )
     session.add(sub)
     session.commit()
     session.refresh(commute)
 
     # Weather payload mock
-    mock_hourly = {
-        "hourly": {
-            "time": [f"2026-10-04T{h:02d}:00" for h in range(24)],
-            "temperature_2m": [65.0] * 24,
-            "apparent_temperature": [64.0] * 24,
-            "wind_speed_10m": [12.0] * 24,
-            "precipitation_probability": [5.0] * 24,
-            "weather_code": [0] * 24,
-        }
-    }
+    from tests.helpers import forecast
 
-    with patch("app.main.engine", integ_engine), \
-         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_weather, \
-         patch("app.main.notification_service_instance.send_notification", new_callable=AsyncMock) as mock_webhook, \
-         patch("app.notifications.webpush") as mock_webpush:
+    mock_hourly = forecast(temperature=65, wind=12, gusts=14, rain=5)
 
+    with (
+        patch("app.main.engine", integ_engine),
+        patch(
+            "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+        ) as mock_weather,
+        patch(
+            "app.main.notification_service_instance.send_notification",
+            new_callable=AsyncMock,
+        ) as mock_webhook,
+        patch("app.notifications.webpush") as mock_webpush,
+    ):
         mock_weather.return_value = (mock_hourly, mock_hourly)
 
         # 1. Execute Outbound Leg
@@ -525,7 +573,9 @@ async def test_scheduler_resilience_to_database_locks(session: Session):
     session.refresh(commute)
 
     # Simulate database lock when opening Session
-    with patch("app.main.Session", side_effect=sqlite3.OperationalError("database is locked")):
+    with patch(
+        "app.main.Session", side_effect=sqlite3.OperationalError("database is locked")
+    ):
         res = await run_commute_check(commute.id, leg_type="outbound")
         assert res is None, "Should handle database lock gracefully and return None"
 
@@ -551,11 +601,18 @@ async def test_scheduler_resilience_to_network_offline(session: Session):
     session.commit()
     session.refresh(commute)
 
-    with patch("app.main.engine", integ_engine), \
-         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_fetch:
-
+    with (
+        patch("app.main.engine", integ_engine),
+        patch(
+            "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+        ) as mock_fetch,
+    ):
         # Simulate network failure / connection timeout
-        mock_fetch.side_effect = ConnectionError("Weather API endpoint unreachable (offline)")
+        mock_fetch.side_effect = ConnectionError(
+            "Weather API endpoint unreachable (offline)"
+        )
 
         res = await run_commute_check(commute.id, leg_type="outbound")
-        assert res is None, "Should handle network offline error gracefully without crashing"
+        assert res is None, (
+            "Should handle network offline error gracefully without crashing"
+        )

@@ -2,10 +2,13 @@ import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
+import secrets
 from dotenv import load_dotenv
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from jose import JWTError, jwt
 from sqlmodel import Session, select
 
@@ -16,7 +19,9 @@ from app.models import User, UserCreate, UserOut
 load_dotenv()
 
 # Security constants
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key") # TODO: Change default in production
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if SECRET_KEY in {"", "your-secret-key", "replace-with-a-random-secret"}:
+    SECRET_KEY = secrets.token_urlsafe(48)
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
@@ -25,26 +30,39 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/login", auto_error=F
 
 router = APIRouter(prefix="/api", tags=["authentication"])
 
+
 def get_password_hash(password: str) -> str:
     # bcrypt works with bytes, so encode the password
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    return hashed_password.decode('utf-8')
+    hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    return hashed_password.decode("utf-8")
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     # bcrypt works with bytes, so encode and decode as necessary
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+        )
+    except ValueError:
+        return False
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -66,93 +84,73 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
 
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme_optional),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ) -> Optional[User]:
-    if not token:
+    if token is None:
         return None
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: Optional[str] = payload.get("sub")
-        if email is None:
-            return None
-    except JWTError:
-        return None
+    return await get_current_user(token, session)
 
-    return session.exec(select(User).where(User.email == email)).first()
 
+@router.get("/auth/me", response_model=UserOut)
+@router.get("/me", response_model=UserOut)
+async def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    return current_user
 
 
 @router.post("/register")
 def register_user(user_data: UserCreate, session: Session = Depends(get_session)):
     # Check if user with this email already exists
-    existing_user = session.exec(select(User).where(User.email == user_data.email)).first()
+    existing_user = session.exec(
+        select(User).where(func.lower(User.email) == user_data.email)
+    ).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists"
+            detail="User with this email already exists",
         )
-    
+
     hashed_password = get_password_hash(user_data.password)
     user = User(email=user_data.email, hashed_password=hashed_password)
     session.add(user)
     try:
         session.commit()
-    except Exception:
+    except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists"
-        )
+        raise HTTPException(400, "User with this email already exists") from exc
     session.refresh(user)
-    return {"message": "User registered successfully", "user": user}
+    return {
+        "message": "User registered successfully",
+        "user": UserOut.model_validate(user),
+        "access_token": create_access_token({"sub": user.email}),
+        "token_type": "bearer",
+    }
+
 
 @router.post("/login", response_model=dict)
 async def login_for_access_token(
     request: Request,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
-    content_type = request.headers.get("content-type", "")
-    username = None
-    password = None
-
-    if "application/json" in content_type:
-        try:
-            body = await request.json()
-            if isinstance(body, dict):
-                username = body.get("email") or body.get("username")
-                password = body.get("password")
-        except Exception:
-            pass
-    elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-        try:
-            form = await request.form()
-            username = form.get("username") or form.get("email")
-            password = form.get("password")
-        except Exception:
-            pass
-    else:
-        # Fallback: try json, then form
-        try:
-            body = await request.json()
-            if isinstance(body, dict):
-                username = body.get("email") or body.get("username")
-                password = body.get("password")
-        except Exception:
-            try:
-                form = await request.form()
-                username = form.get("username") or form.get("email")
-                password = form.get("password")
-            except Exception:
-                pass
-
-    if not username or not password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email and password are required",
-        )
-
-    user = session.exec(select(User).where(User.email == str(username).strip())).first()
-    if not user or not verify_password(str(password), user.hashed_password):
+    try:
+        if "application/json" in request.headers.get("content-type", ""):
+            data = await request.json()
+        else:
+            data = await request.form()
+        username = data.get("username") or data.get("email")
+        password = data.get("password")
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Email and password are required")
+    if (
+        not isinstance(username, str)
+        or not isinstance(password, str)
+        or not username
+        or not password
+    ):
+        raise HTTPException(400, "Email and password are required")
+    user = session.exec(
+        select(User).where(func.lower(User.email) == username.strip().lower())
+    ).first()
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -165,13 +163,5 @@ async def login_for_access_token(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-        },
+        "user": UserOut.model_validate(user),
     }
-
-@router.get("/auth/me", response_model=UserOut)
-@router.get("/me", response_model=UserOut)
-async def get_current_user_profile(current_user: User = Depends(get_current_user)):
-    return current_user
