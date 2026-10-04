@@ -43,26 +43,14 @@
     let dest_lon = $state<number | null>(null);
     let return_schedule_time = $state('17:00');
 
+    let isLoadingForecast = $state(false);
+    let isCheckingRoute = $state(false);
+    let isLoading = $derived(isLoadingForecast || isCheckingRoute);
+    let errorMessage = $state<string | null>(null);
+    let lastFailedAction = $state<(() => Promise<void>) | null>(null);
+
     onMount(async () => {
-        const initial = (activeAssessments.length > 0 ? activeAssessments[selectedIndex] : null) ||
-                        (data.assessments && data.assessments.length > 0 ? data.assessments[0] : null);
-        if (initial) {
-            if (initial.dest_name) dest_name = initial.dest_name;
-            if (initial.dest_lat !== undefined && initial.dest_lat !== null) dest_lat = initial.dest_lat;
-            if (initial.dest_lon !== undefined && initial.dest_lon !== null) dest_lon = initial.dest_lon;
-            if (initial.return_schedule_time) return_schedule_time = initial.return_schedule_time;
-            try {
-                forecast = await getWeatherForecast(initial.id, initial.unit_system || 'imperial', dest_lat, dest_lon);
-            } catch (e) {
-                console.error('Error fetching weather forecast:', e);
-            }
-        } else {
-            try {
-                forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
-            } catch (e) {
-                console.error('Error fetching weather forecast:', e);
-            }
-        }
+        await loadInitialForecast();
 
         const focusVisualizer = () => {
             if (typeof window !== 'undefined' && window.location.hash === '#route-visualizer') {
@@ -81,6 +69,35 @@
         }
     });
 
+    async function loadInitialForecast() {
+        const initial = (activeAssessments.length > 0 ? activeAssessments[selectedIndex] : null) ||
+                        (data.assessments && data.assessments.length > 0 ? data.assessments[0] : null);
+        if (initial) {
+            if (initial.dest_name) dest_name = initial.dest_name;
+            if (initial.dest_lat !== undefined && initial.dest_lat !== null) dest_lat = initial.dest_lat;
+            if (initial.dest_lon !== undefined && initial.dest_lon !== null) dest_lon = initial.dest_lon;
+            if (initial.return_schedule_time) return_schedule_time = initial.return_schedule_time;
+        }
+
+        errorMessage = null;
+        isLoadingForecast = true;
+        try {
+            if (initial) {
+                forecast = await getWeatherForecast(initial.id, initial.unit_system || 'imperial', dest_lat, dest_lon);
+            } else {
+                forecast = await getWeatherForecast(undefined, 'imperial', dest_lat, dest_lon);
+            }
+            lastFailedAction = null;
+        } catch (e: any) {
+            console.error('Error fetching weather forecast:', e);
+            forecast = null;
+            errorMessage = e?.message || 'Failed to fetch weather forecast. Please check your connection and try again.';
+            lastFailedAction = () => loadInitialForecast();
+        } finally {
+            isLoadingForecast = false;
+        }
+    }
+
     async function selectCommute(index: number) {
         if (index < 0 || index >= activeAssessments.length) return;
         selectedIndex = index;
@@ -92,6 +109,8 @@
         dest_lon = commute.dest_lon ?? null;
         return_schedule_time = commute.return_schedule_time || '17:00';
 
+        errorMessage = null;
+        isLoadingForecast = true;
         try {
             forecast = await getWeatherForecast(
                 commute.id,
@@ -99,14 +118,22 @@
                 dest_lat,
                 dest_lon
             );
-        } catch (e) {
+            lastFailedAction = null;
+        } catch (e: any) {
             console.error('Error fetching weather forecast:', e);
             forecast = null;
+            errorMessage = e?.message || 'Failed to fetch weather forecast. Please check your connection and try again.';
+            lastFailedAction = () => selectCommute(index);
+        } finally {
+            isLoadingForecast = false;
         }
     }
 
     async function checkDestinationWeather(e?: Event) {
         if (e) e.preventDefault();
+        errorMessage = null;
+        isLoadingForecast = true;
+        isCheckingRoute = true;
         try {
             const current = selectedCommute;
             forecast = await getWeatherForecast(current?.id, current?.unit_system || 'imperial', dest_lat, dest_lon);
@@ -127,9 +154,26 @@
                         : item
                 );
             }
-        } catch (err) {
+            lastFailedAction = null;
+        } catch (err: any) {
             console.error('Error updating forecast with destination:', err);
+            errorMessage = err?.message || 'Failed to update route assessment. Please check your inputs and try again.';
+            lastFailedAction = () => checkDestinationWeather();
+        } finally {
+            isLoadingForecast = false;
+            isCheckingRoute = false;
         }
+    }
+
+    async function retryLastAction() {
+        if (lastFailedAction) {
+            const action = lastFailedAction;
+            await action();
+        }
+    }
+
+    function dismissError() {
+        errorMessage = null;
     }
 
     const statusIcons: Record<string, string> = {
@@ -150,6 +194,46 @@
     <PwaInstallPrompt />
 
     <h1>Commute Check Dashboard</h1>
+
+    {#if errorMessage}
+        <div class="error-banner" data-testid="error-banner" role="alert">
+            <div class="error-content">
+                <span class="error-icon" aria-hidden="true">⚠️</span>
+                <span class="error-text">{errorMessage}</span>
+            </div>
+            <div class="error-actions">
+                {#if lastFailedAction}
+                    <button
+                        type="button"
+                        class="retry-btn"
+                        data-testid="retry-btn"
+                        onclick={retryLastAction}
+                        disabled={isLoading}
+                    >
+                        {#if isLoading}Retrying...{:else}Retry{/if}
+                    </button>
+                {/if}
+                <button
+                    type="button"
+                    class="dismiss-btn"
+                    data-testid="dismiss-btn"
+                    aria-label="Dismiss error"
+                    onclick={dismissError}
+                >
+                    ✕
+                </button>
+            </div>
+        </div>
+    {/if}
+
+    {#if isLoading}
+        <div class="loading-indicator" data-testid="loading-indicator" role="status" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <span class="loading-text">
+                {isCheckingRoute ? 'Assessing route and updating forecast...' : 'Loading weather forecast...'}
+            </span>
+        </div>
+    {/if}
 
     <PushNotificationToggle />
 
@@ -207,7 +291,19 @@
                 <label for="return_schedule_time">Return Schedule Time</label>
                 <input type="time" id="return_schedule_time" bind:value={return_schedule_time} />
             </div>
-            <button type="submit" class="update-btn">Update Route Forecast</button>
+            <button
+                type="submit"
+                class="update-btn"
+                disabled={isCheckingRoute}
+                data-testid="update-route-btn"
+            >
+                {#if isCheckingRoute}
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    Updating Route...
+                {:else}
+                    Update Route Forecast
+                {/if}
+            </button>
         </form>
     </section>
 
@@ -287,7 +383,17 @@
         </section>
     {/if}
 
-    {#if forecast && forecast.hourly && forecast.hourly.length > 0}
+    {#if isLoadingForecast && !forecast}
+        <section class="skeleton-section" data-testid="skeleton-loader" aria-label="Loading weather visualizations">
+            <div class="skeleton-title skeleton-shimmer"></div>
+            <div class="skeleton-grid">
+                <div class="skeleton-card skeleton-shimmer"></div>
+                <div class="skeleton-card skeleton-shimmer"></div>
+                <div class="skeleton-card skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-chart skeleton-shimmer"></div>
+        </section>
+    {:else if forecast && forecast.hourly && forecast.hourly.length > 0}
         <section class="weather-visualizations">
             <h2>Weather Visualizations</h2>
             <RiskGaugeCards
@@ -536,5 +642,168 @@
             margin-top: 16px;
             gap: 8px;
         }
+    }
+
+    .loading-indicator {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background-color: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 8px;
+        color: #0369a1;
+        font-weight: 500;
+        margin-bottom: 20px;
+    }
+
+    .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #bae6fd;
+        border-top-color: #0284c7;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        flex-shrink: 0;
+    }
+
+    .btn-spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-right: 6px;
+        vertical-align: middle;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .error-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        background-color: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        color: #991b1b;
+        margin-bottom: 20px;
+        font-size: 0.95rem;
+    }
+
+    .error-content {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+    }
+
+    .error-icon {
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .error-text {
+        font-weight: 500;
+        word-break: break-word;
+    }
+
+    .error-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .retry-btn {
+        background-color: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .retry-btn:hover:not(:disabled) {
+        background-color: #b91c1c;
+    }
+
+    .retry-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .dismiss-btn {
+        background: transparent;
+        border: none;
+        color: #991b1b;
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        line-height: 1;
+    }
+
+    .dismiss-btn:hover {
+        background-color: #fee2e2;
+    }
+
+    /* Skeleton Loader */
+    .skeleton-section {
+        margin-top: 30px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .skeleton-shimmer {
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 6px;
+    }
+
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    .skeleton-title {
+        height: 28px;
+        width: 220px;
+    }
+
+    .skeleton-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+    }
+
+    .skeleton-card {
+        height: 120px;
+    }
+
+    .skeleton-chart {
+        height: 250px;
+    }
+
+    .update-btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
     }
 </style>
