@@ -431,10 +431,12 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
             if lat is None or lon is None:
                 raise ValueError(f"Coordinate dict must contain lat/lon: {item}")
             parsed.append(Waypoint(
+                id=item.get("id"),
                 lat=float(lat),
                 lon=float(lon),
                 name=str(item.get("name", f"Waypoint {i+1}")),
                 order=int(item.get("order", i)),
+                status=item.get("status"),
             ))
         elif hasattr(item, "model_dump"):
             data = item.model_dump()
@@ -442,19 +444,23 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
             lon = data.get("lon") if "lon" in data else (data.get("lng") if "lng" in data else data.get("longitude"))
             if lat is not None and lon is not None:
                 parsed.append(Waypoint(
+                    id=data.get("id"),
                     lat=float(lat),
                     lon=float(lon),
                     name=str(data.get("name", f"Waypoint {i+1}")),
                     order=int(data.get("order", i)),
+                    status=data.get("status"),
                 ))
             else:
                 raise ValueError(f"Invalid waypoint item: {item}")
         elif hasattr(item, "lat") and hasattr(item, "lon"):
             parsed.append(Waypoint(
+                id=getattr(item, "id", None),
                 lat=float(item.lat),
                 lon=float(item.lon),
                 name=str(getattr(item, "name", f"Waypoint {i+1}")),
                 order=int(getattr(item, "order", i)),
+                status=getattr(item, "status", None),
             ))
         else:
             raise ValueError(f"Invalid waypoint item: {item}")
