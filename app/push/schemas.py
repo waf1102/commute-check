@@ -15,3 +15,12 @@ class PushUnsubscribeRequest(BaseModel):
 
 class VapidPublicKeyResponse(BaseModel):
     public_key: str
+
+class TestPushRequest(BaseModel):
+    title: Optional[str] = "Commute Check Test"
+    body: Optional[str] = "Web Push Notifications are working perfectly! 🏍️"
+    url: Optional[str] = "/#route-visualizer"
+    has_route_hazard: Optional[bool] = False
+    hazard_count: Optional[int] = 0
+    primary_hazard_location: Optional[str] = ""
+

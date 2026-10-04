@@ -91,13 +91,40 @@ async def run_commute_check(commute_id: int, leg_type: str = "outbound"):
         else:
             leg_assessment = route_assessment.outbound_leg
 
+        if commute and commute.name:
+            leg_assessment.commute_name = commute.name
+
         if commute.webhook_url:
             await notification_service_instance.send_notification(
                 commute.webhook_url, leg_assessment, leg_type=leg_type
             )
         if commute.user_id:
-            title, body = notification_service_instance._format_message(leg_assessment, leg_type=leg_type)
-            dispatch_web_push_notification(commute.user_id, title, body, session)
+            title, body = notification_service_instance._format_message(
+                leg_assessment, leg_type=leg_type, commute_name=commute.name if commute else None
+            )
+            pinpoints = notification_service_instance.extract_hazard_pinpoints(leg_assessment)
+            has_route_hazard = bool(pinpoints)
+            hazard_count = len(pinpoints)
+            primary_hazard_location = ""
+            if pinpoints:
+                first_p = pinpoints[0]
+                primary_hazard_location = (
+                    first_p.get("location")
+                    or first_p.get("location_name")
+                    or first_p.get("name")
+                    or ""
+                )
+            dispatch_web_push_notification(
+                commute.user_id,
+                title,
+                body,
+                session,
+                url="/#route-visualizer",
+                has_route_hazard=has_route_hazard,
+                hazard_count=hazard_count,
+                primary_hazard_location=primary_hazard_location,
+                assessment=leg_assessment,
+            )
 
         # Automatically persist assessment run
         try:

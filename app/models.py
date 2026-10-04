@@ -31,16 +31,22 @@ class HourlyWeather(BaseModel):
 
 
 class HazardPinpoint(BaseModel):
-    lat: float
-    lon: float
+    lat: Optional[float] = None
+    lon: Optional[float] = None
     coordinates: Optional[Tuple[float, float]] = None
     estimated_time: Optional[str] = None
+    time: Optional[str] = None
+    encounter_time: Optional[str] = None
     parameter: Optional[str] = None
     parameter_breached: Optional[str] = None
-    value: Optional[float] = None
-    threshold: Optional[float] = None
+    hazard: Optional[str] = None
+    hazard_type: Optional[str] = None
+    value: Optional[Union[float, str]] = None
+    threshold: Optional[Union[float, str]] = None
     warning_message: Optional[str] = None
-    severity: Union[Status, str] = Status.CAUTION
+    description: Optional[str] = None
+    severity: Optional[Union[Status, str]] = Status.CAUTION
+    location: Optional[str] = None
     location_name: Optional[str] = None
     title: Optional[str] = None
     weather_conditions: Optional[str] = None
@@ -50,11 +56,11 @@ class HazardPinpoint(BaseModel):
     def __init__(self, **data):
         if "coordinates" in data and data["coordinates"]:
             c = data["coordinates"]
-            if "lat" not in data:
+            if "lat" not in data or data["lat"] is None:
                 data["lat"] = float(c[0])
-            if "lon" not in data:
+            if "lon" not in data or data["lon"] is None:
                 data["lon"] = float(c[1])
-        elif "lat" in data and "lon" in data:
+        elif "lat" in data and "lon" in data and data["lat"] is not None and data["lon"] is not None:
             data["coordinates"] = (float(data["lat"]), float(data["lon"]))
 
         if "parameter" in data and "parameter_breached" not in data:
@@ -62,18 +68,41 @@ class HazardPinpoint(BaseModel):
         elif "parameter_breached" in data and "parameter" not in data:
             data["parameter"] = data["parameter_breached"]
 
+        if "hazard" in data and "parameter" not in data:
+            data["parameter"] = data["hazard"]
+        elif "parameter" in data and "hazard" not in data:
+            data["hazard"] = data["parameter"]
+
+        if "time" in data and "estimated_time" not in data:
+            data["estimated_time"] = data["time"]
+        elif "estimated_time" in data and "time" not in data:
+            data["time"] = data["estimated_time"]
+
+        if "encounter_time" in data and "estimated_time" not in data:
+            data["estimated_time"] = data["encounter_time"]
+        elif "estimated_time" in data and "encounter_time" not in data:
+            data["encounter_time"] = data["estimated_time"]
+
+        if "location" in data and "location_name" not in data:
+            data["location_name"] = data["location"]
+        elif "location_name" in data and "location" not in data:
+            data["location"] = data["location_name"]
+
         if "estimated_time" not in data or data["estimated_time"] is None:
             data["estimated_time"] = ""
         if "parameter" not in data or data["parameter"] is None:
-            data["parameter"] = "weather"
-        if "value" not in data or data["value"] is None:
-            data["value"] = 0.0
-        if "threshold" not in data or data["threshold"] is None:
-            data["threshold"] = 0.0
+            data["parameter"] = data.get("hazard") or "weather"
         if "warning_message" not in data or data["warning_message"] is None:
-            data["warning_message"] = data.get("title") or "Adverse weather conditions"
+            data["warning_message"] = data.get("title") or data.get("description") or "Adverse weather conditions"
+        if "description" not in data or data["description"] is None:
+            data["description"] = data["warning_message"]
 
         super().__init__(**data)
+
+    def __eq__(self, other):
+        if isinstance(other, dict):
+            return all(getattr(self, k, None) == v for k, v in other.items())
+        return super().__eq__(other)
 
 
 class WaypointEvaluation(BaseModel):
@@ -159,6 +188,8 @@ class AssessmentResult(BaseModel):
     segments: List[RouteSegment] = []
     waypoint_evaluations: List[WaypointEvaluation] = []
     hazard_pinpoints: List[HazardPinpoint] = []
+    waypoint_risks: Optional[List[Any]] = None
+    commute_name: Optional[str] = None
 
 
 class LegAssessment(BaseModel):
@@ -172,6 +203,8 @@ class LegAssessment(BaseModel):
     segments: List[RouteSegment] = []
     waypoint_evaluations: List[WaypointEvaluation] = []
     hazard_pinpoints: List[HazardPinpoint] = []
+    waypoint_risks: Optional[List[Any]] = None
+    commute_name: Optional[str] = None
 
 
 class RouteAssessmentResult(BaseModel):
@@ -183,6 +216,7 @@ class RouteAssessmentResult(BaseModel):
     segments: List[RouteSegment] = []
     waypoint_evaluations: List[WaypointEvaluation] = []
     hazard_pinpoints: List[HazardPinpoint] = []
+    commute_name: Optional[str] = None
 
 
 class AssessmentRequest(BaseModel):
