@@ -393,3 +393,143 @@ def test_send_test_push_with_hazard_metadata_api(
     assert data["primary_hazard_location"] == "Summit Pass"
     assert data["url"] == "/#route-visualizer"
     assert "Summit Pass" in data["body"]
+
+
+def test_dispatch_web_push_notification_from_dict_assessment(session: Session):
+    from app.notifications import dispatch_web_push_notification
+    import json
+
+    user = create_test_user(session, email="dictpush@example.com")
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint="https://fcm.googleapis.com/fcm/send/dict_token",
+        p256dh="dh_dict",
+        auth="auth_dict",
+    )
+    session.add(sub)
+    session.commit()
+
+    dict_assessment = {
+        "status": "Caution",
+        "hazard_pinpoints": [
+            {
+                "location": "Ridge Crossing",
+                "hazard": "High wind gusts",
+                "value": "32 mph",
+                "time": "08:30 AM",
+            }
+        ],
+    }
+
+    with patch("app.notifications.webpush") as mock_webpush:
+        res = dispatch_web_push_notification(
+            user_id=user.id,
+            title="Commute Check: Caution",
+            body="Alert body",
+            session=session,
+            assessment=dict_assessment,
+        )
+        assert res["delivered"] == 1
+        call_kwargs = mock_webpush.call_args[1]
+        data = json.loads(call_kwargs["data"])
+        assert data["has_route_hazard"] is True
+        assert data["hazard_count"] == 1
+        assert data["primary_hazard_location"] == "Ridge Crossing"
+
+
+def test_dispatch_web_push_notification_from_nested_dict_assessment(session: Session):
+    from app.notifications import dispatch_web_push_notification
+    import json
+
+    user = create_test_user(session, email="nestedpush@example.com")
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint="https://fcm.googleapis.com/fcm/send/nested_token",
+        p256dh="dh_nested",
+        auth="auth_nested",
+    )
+    session.add(sub)
+    session.commit()
+
+    nested_assessment = {
+        "data": {
+            "assessment": {
+                "status": "No-Go",
+                "waypoint_risks": [
+                    {
+                        "location_name": "Low River Valley",
+                        "parameter": "Heavy rain",
+                        "value": "90%",
+                        "encounter_time": "09:15 AM",
+                    }
+                ],
+            }
+        }
+    }
+
+    with patch("app.notifications.webpush") as mock_webpush:
+        res = dispatch_web_push_notification(
+            user_id=user.id,
+            title="Commute Check: No-Go",
+            body="Rain alert",
+            session=session,
+            assessment=nested_assessment,
+        )
+        assert res["delivered"] == 1
+        call_kwargs = mock_webpush.call_args[1]
+        data = json.loads(call_kwargs["data"])
+        assert data["has_route_hazard"] is True
+        assert data["hazard_count"] == 1
+        assert data["primary_hazard_location"] == "Low River Valley"
+
+
+@patch("app.notifications.webpush")
+def test_send_test_push_with_assessment_payload_api(
+    mock_webpush, client: TestClient, auth_headers: dict
+):
+    # Subscribe first
+    sub_res = client.post(
+        "/push/subscribe",
+        json={
+            "endpoint": "https://fcm.googleapis.com/fcm/send/api_assess_token",
+            "keys": {"p256dh": "dh_assess", "auth": "auth_assess"},
+        },
+        headers=auth_headers,
+    )
+    assert sub_res.status_code == 200
+
+    # Post /push/test with assessment dict payload
+    res = client.post(
+        "/push/test",
+        json={
+            "title": "API Test",
+            "body": "API Test Body",
+            "assessment": {
+                "assessment": {
+                    "status": "Caution",
+                    "hazard_pinpoints": [
+                        {
+                            "location": "Coastal Highway",
+                            "hazard": "High wind gusts",
+                            "value": "29 mph",
+                            "time": "10:00 AM",
+                        }
+                    ],
+                }
+            },
+        },
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 200
+    assert res.json()["delivered"] == 1
+    assert mock_webpush.called
+
+    import json
+
+    call_kwargs = mock_webpush.call_args[1]
+    data = json.loads(call_kwargs["data"])
+    assert data["has_route_hazard"] is True
+    assert data["hazard_count"] == 1
+    assert data["primary_hazard_location"] == "Coastal Highway"
+

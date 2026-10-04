@@ -30,3 +30,4 @@ class TestPushRequest(BaseModel):
     primary_hazard_location: Optional[str] = ""
     hazard_pinpoints: Optional[List[Dict[str, Any]]] = None
     extra_data: Optional[Dict[str, Any]] = None
+    assessment: Optional[Any] = None
