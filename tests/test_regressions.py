@@ -308,9 +308,11 @@ def test_upgrade_preserves_existing_commutes_and_is_repeatable(monkeypatch, tmp_
     database.create_db_and_tables()
     with engine.connect() as connection:
         row = connection.execute(
-            text("SELECT name, origin_name, timezone FROM commute")
+            text(
+                "SELECT name, origin_name, timezone, notification_time, return_notification_time FROM commute"
+            )
         ).one()
-    assert tuple(row) == ("Existing ride", "Home", "UTC")
+    assert tuple(row) == ("Existing ride", "Home", "UTC", None, None)
     engine.dispose()
 
 
@@ -330,3 +332,118 @@ def test_place_search_failure_is_actionable(client):
         response = client.get("/api/places?q=Boston")
     assert response.status_code == 503
     assert "Try again" in response.json()["detail"]
+
+
+def test_commute_schema_creation_and_validation_with_notification_times(client):
+    user_id = sign_in(client, "notify_user@example.com")
+
+    # Invalid notification time format
+    res_bad = client.post(
+        "/api/commutes",
+        json=config(notification_time="25:00", return_notification_time="17:00"),
+    )
+    assert res_bad.status_code == 422
+
+    res_bad_return = client.post(
+        "/api/commutes",
+        json=config(notification_time="07:30", return_notification_time="invalid"),
+    )
+    assert res_bad_return.status_code == 422
+
+    # Successful creation with distinct notification times
+    res_ok = client.post(
+        "/api/commutes",
+        json=config(
+            schedule_time="08:00",
+            return_schedule_time="17:00",
+            notification_time="07:30",
+            return_notification_time="16:30",
+        ),
+    )
+    assert res_ok.status_code == 200
+    commute_data = res_ok.json()
+    assert commute_data["notification_time"] == "07:30"
+    assert commute_data["return_notification_time"] == "16:30"
+    assert commute_data["schedule_time"] == "08:00"
+    assert commute_data["return_schedule_time"] == "17:00"
+
+    commute_id = commute_data["id"]
+    get_res = client.get(f"/api/commutes/{commute_id}")
+    assert get_res.status_code == 200
+    persisted = get_res.json()
+    assert persisted["notification_time"] == "07:30"
+    assert persisted["return_notification_time"] == "16:30"
+
+
+def test_scheduler_respects_notification_times_and_fallback(client):
+    sign_in(client, "sched_user@example.com")
+
+    # 1. Distinct notification times: scheduler triggers at notification times
+    res1 = client.post(
+        "/api/commutes",
+        json=config(
+            schedule_time="08:30",
+            return_schedule_time="17:30",
+            notification_time="07:45",
+            return_notification_time="16:50",
+        ),
+    )
+    assert res1.status_code == 200
+    id1 = res1.json()["id"]
+
+    outbound_job1 = scheduler.get_job(f"commute_check_{id1}_outbound")
+    return_job1 = scheduler.get_job(f"commute_check_{id1}_return")
+    assert outbound_job1 is not None
+    assert return_job1 is not None
+
+    out1_fields = {f.name: str(f) for f in outbound_job1.trigger.fields}
+    ret1_fields = {f.name: str(f) for f in return_job1.trigger.fields}
+    assert out1_fields["hour"] == "7"
+    assert out1_fields["minute"] == "45"
+    assert ret1_fields["hour"] == "16"
+    assert ret1_fields["minute"] == "50"
+
+    # 2. Fallback behavior: when notification times are null/omitted, use schedule_time
+    res2 = client.post(
+        "/api/commutes",
+        json=config(
+            schedule_time="09:15",
+            return_schedule_time="18:20",
+            notification_time=None,
+            return_notification_time=None,
+        ),
+    )
+    assert res2.status_code == 200
+    id2 = res2.json()["id"]
+
+    outbound_job2 = scheduler.get_job(f"commute_check_{id2}_outbound")
+    return_job2 = scheduler.get_job(f"commute_check_{id2}_return")
+    assert outbound_job2 is not None
+    assert return_job2 is not None
+
+    out2_fields = {f.name: str(f) for f in outbound_job2.trigger.fields}
+    ret2_fields = {f.name: str(f) for f in return_job2.trigger.fields}
+    assert out2_fields["hour"] == "9"
+    assert out2_fields["minute"] == "15"
+    assert ret2_fields["hour"] == "18"
+    assert ret2_fields["minute"] == "20"
+
+    # 3. Update commute with notification times updates scheduler
+    res3 = client.put(
+        f"/api/commutes/{id2}",
+        json=config(
+            schedule_time="09:15",
+            return_schedule_time="18:20",
+            notification_time="08:45",
+            return_notification_time="17:55",
+        ),
+    )
+    assert res3.status_code == 200
+    outbound_job2_updated = scheduler.get_job(f"commute_check_{id2}_outbound")
+    return_job2_updated = scheduler.get_job(f"commute_check_{id2}_return")
+    out2_up_fields = {f.name: str(f) for f in outbound_job2_updated.trigger.fields}
+    ret2_up_fields = {f.name: str(f) for f in return_job2_updated.trigger.fields}
+    assert out2_up_fields["hour"] == "8"
+    assert out2_up_fields["minute"] == "45"
+    assert ret2_up_fields["hour"] == "17"
+    assert ret2_up_fields["minute"] == "55"

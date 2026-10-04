@@ -18,6 +18,8 @@ def create_db_and_tables():
         for name, definition in {
             "origin_name": "VARCHAR NOT NULL DEFAULT 'Home'",
             "timezone": "VARCHAR NOT NULL DEFAULT 'UTC'",
+            "notification_time": "VARCHAR",
+            "return_notification_time": "VARCHAR",
         }.items():
             if name not in columns:
                 connection.execute(

@@ -178,8 +178,13 @@ def schedule_commute_check(commute: Commute):
     if scheduler.get_job(outbound_job_id):
         scheduler.remove_job(outbound_job_id)
 
-    if commute.schedule_time:
-        parts = commute.schedule_time.strip().split(":")
+    outbound_time = (
+        commute.notification_time.strip()
+        if commute.notification_time and commute.notification_time.strip()
+        else commute.schedule_time
+    )
+    if outbound_time:
+        parts = outbound_time.strip().split(":")
         outbound_hour, outbound_minute = parts[0].strip(), parts[1].strip()
         scheduler.add_job(
             run_commute_check,
@@ -193,7 +198,7 @@ def schedule_commute_check(commute: Commute):
             replace_existing=True,
         )
         print(
-            f"Scheduled outbound job '{outbound_job_id}' to run at {commute.schedule_time} on days: {commute.days_of_week}."
+            f"Scheduled outbound job '{outbound_job_id}' to run at {outbound_time} on days: {commute.days_of_week}."
         )
 
     # 2. Return job
@@ -201,8 +206,13 @@ def schedule_commute_check(commute: Commute):
     if scheduler.get_job(return_job_id):
         scheduler.remove_job(return_job_id)
 
-    if commute.return_schedule_time and commute.return_schedule_time.strip():
-        parts = commute.return_schedule_time.strip().split(":")
+    return_time = (
+        commute.return_notification_time.strip()
+        if commute.return_notification_time and commute.return_notification_time.strip()
+        else commute.return_schedule_time
+    )
+    if return_time and return_time.strip():
+        parts = return_time.strip().split(":")
         return_hour, return_minute = parts[0].strip(), parts[1].strip()
         scheduler.add_job(
             run_commute_check,
@@ -216,7 +226,7 @@ def schedule_commute_check(commute: Commute):
             replace_existing=True,
         )
         print(
-            f"Scheduled return job '{return_job_id}' to run at {commute.return_schedule_time} on days: {commute.days_of_week}."
+            f"Scheduled return job '{return_job_id}' to run at {return_time} on days: {commute.days_of_week}."
         )
 
 
