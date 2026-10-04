@@ -7,6 +7,57 @@ export interface UserProfile {
   email?: string;
 }
 
+export interface JwtPayload {
+  sub?: string;
+  email?: string;
+  name?: string;
+  exp?: number;
+  [key: string]: any;
+}
+
+export function decodeJwt<T = JwtPayload>(token: string | null | undefined): T | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+
+  try {
+    const base64Url = parts[1];
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) {
+      base64 += '=';
+    }
+
+    let decodedStr: string;
+    if (typeof atob === 'function') {
+      const binary = atob(base64);
+      try {
+        decodedStr = decodeURIComponent(
+          binary
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+      } catch {
+        decodedStr = binary;
+      }
+    } else if (typeof Buffer !== 'undefined') {
+      decodedStr = Buffer.from(base64, 'base64').toString('utf-8');
+    } else {
+      return null;
+    }
+
+    return JSON.parse(decodedStr);
+  } catch {
+    return null;
+  }
+}
+
+export function getUserEmailFromToken(token: string | null | undefined): string {
+  if (!token) return '';
+  const payload = decodeJwt(token);
+  return payload?.email || payload?.sub || payload?.name || '';
+}
+
 export const jwt_token = writable<string | null>(null);
 export const user = writable<UserProfile | null>(null);
 

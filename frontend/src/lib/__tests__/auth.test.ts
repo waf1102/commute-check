@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
-import { login, register, logout, fetchCurrentUser, jwt_token, user } from '../auth';
+import { login, register, logout, fetchCurrentUser, jwt_token, user, decodeJwt, getUserEmailFromToken } from '../auth';
 
 // Mock navigation
 vi.mock('$app/navigation', () => ({
@@ -146,5 +146,74 @@ describe('Frontend auth module', () => {
     expect(localStorage.getItem('jwt_token')).toBeNull();
     expect(get(jwt_token)).toBeNull();
     expect(get(user)).toBeNull();
+  });
+
+  describe('JWT decoding helpers', () => {
+    // Helper to generate a fake JWT token from a payload object
+    function makeJwt(payload: any): string {
+      const header = { alg: 'HS256', typ: 'JWT' };
+      const toBase64Url = (obj: any) =>
+        btoa(JSON.stringify(obj))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+      return `${toBase64Url(header)}.${toBase64Url(payload)}.fake_signature`;
+    }
+
+    it('decodeJwt correctly extracts sub claim from JWT token', () => {
+      const token = makeJwt({ sub: 'rider@example.com', exp: 1700000000 });
+      const payload = decodeJwt(token);
+      expect(payload).not.toBeNull();
+      expect(payload?.sub).toBe('rider@example.com');
+      expect(payload?.exp).toBe(1700000000);
+    });
+
+    it('decodeJwt correctly extracts email and custom fields from JWT token', () => {
+      const token = makeJwt({ email: 'commuter@example.com', name: 'Commuter Jane', custom_role: 'admin' });
+      const payload = decodeJwt(token);
+      expect(payload).not.toBeNull();
+      expect(payload?.email).toBe('commuter@example.com');
+      expect(payload?.name).toBe('Commuter Jane');
+      expect(payload?.custom_role).toBe('admin');
+    });
+
+    it('decodeJwt handles url-safe base64 characters (- and _)', () => {
+      // payload with bytes that produce - and _ in base64url
+      const token = makeJwt({ special: 'chars>>>???&&&', email: 'test+special@example.com' });
+      const payload = decodeJwt(token);
+      expect(payload?.email).toBe('test+special@example.com');
+    });
+
+    it('decodeJwt handles UTF-8 characters properly', () => {
+      const token = makeJwt({ sub: 'user_café_öäü@example.com', name: 'René' });
+      const payload = decodeJwt(token);
+      expect(payload?.sub).toBe('user_café_öäü@example.com');
+      expect(payload?.name).toBe('René');
+    });
+
+    it('decodeJwt returns null for invalid or corrupted tokens', () => {
+      expect(decodeJwt('')).toBeNull();
+      expect(decodeJwt(null)).toBeNull();
+      expect(decodeJwt(undefined)).toBeNull();
+      expect(decodeJwt('not.a.valid.jwt.with.too.many.dots')).toBeNull();
+      expect(decodeJwt('invalid-single-part-token')).toBeNull();
+      expect(decodeJwt('header.invalid-base64-json%%%.sig')).toBeNull();
+      expect(decodeJwt('header.' + btoa('not-json') + '.sig')).toBeNull();
+    });
+
+    it('getUserEmailFromToken extracts email from sub or email or name', () => {
+      const tokenSub = makeJwt({ sub: 'user_sub@example.com' });
+      expect(getUserEmailFromToken(tokenSub)).toBe('user_sub@example.com');
+
+      const tokenEmail = makeJwt({ email: 'user_email@example.com', sub: 'different_sub' });
+      expect(getUserEmailFromToken(tokenEmail)).toBe('user_email@example.com');
+
+      const tokenNameOnly = makeJwt({ name: 'SoloName' });
+      expect(getUserEmailFromToken(tokenNameOnly)).toBe('SoloName');
+
+      expect(getUserEmailFromToken(null)).toBe('');
+      expect(getUserEmailFromToken(undefined)).toBe('');
+      expect(getUserEmailFromToken('malformed-token')).toBe('');
+    });
   });
 });
