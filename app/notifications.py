@@ -83,11 +83,49 @@ def dispatch_web_push_notification(
             delivered += 1
         except WebPushException as ex:
             failed += 1
-            status_code = getattr(ex.response, "status_code", None) if hasattr(ex, "response") else None
-            if status_code in (404, 410):
-                session.delete(sub)
+            status_code = getattr(ex, "status_code", None)
+            if status_code is None and hasattr(ex, "response") and ex.response is not None:
+                status_code = getattr(ex.response, "status_code", getattr(ex.response, "status", None))
 
-    session.commit()
+            is_expired = status_code in (404, 410)
+            if not is_expired:
+                err_msg = str(ex).lower()
+                if "410" in err_msg and "gone" in err_msg:
+                    is_expired = True
+                elif "404" in err_msg and ("not found" in err_msg or "endpoint" in err_msg):
+                    is_expired = True
+
+            if is_expired:
+                logger.info(f"Pruning dead/expired push subscription id={sub.id}, endpoint={sub.endpoint}")
+                session.delete(sub)
+            else:
+                logger.warning(f"Failed to dispatch web push to subscription {sub.id}: {ex}")
+        except Exception as ex:
+            failed += 1
+            status_code = getattr(ex, "status_code", None)
+            if status_code is None and hasattr(ex, "response") and ex.response is not None:
+                status_code = getattr(ex.response, "status_code", getattr(ex.response, "status", None))
+
+            is_expired = status_code in (404, 410)
+            if not is_expired:
+                err_msg = str(ex).lower()
+                if "410" in err_msg and "gone" in err_msg:
+                    is_expired = True
+                elif "404" in err_msg and ("not found" in err_msg or "endpoint" in err_msg):
+                    is_expired = True
+
+            if is_expired:
+                logger.info(f"Pruning dead/expired push subscription id={sub.id}, endpoint={sub.endpoint}")
+                session.delete(sub)
+            else:
+                logger.error(f"Unexpected error dispatching web push to subscription {sub.id}: {ex}")
+
+    try:
+        session.commit()
+    except Exception as e:
+        logger.error(f"Failed to commit push subscription changes: {e}")
+        session.rollback()
+
     return {"delivered": delivered, "failed": failed}
 
 class NotificationService:
