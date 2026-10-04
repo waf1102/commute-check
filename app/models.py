@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import List, Optional, Tuple, Any, Union, Dict
+import math
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
@@ -376,22 +377,24 @@ def validate_and_normalize_days_of_week(val: str) -> str:
 
 
 class Waypoint(BaseModel):
+    id: Optional[Union[str, int]] = None
     name: str = ""
     lat: float
     lon: float
     order: int = 0
+    status: Optional[str] = None
 
     @field_validator("lat")
     @classmethod
     def validate_latitude(cls, v: float) -> float:
-        if not (-90.0 <= v <= 90.0):
+        if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
             raise ValueError(f"Latitude must be between -90 and 90, got {v}")
         return v
 
     @field_validator("lon")
     @classmethod
     def validate_longitude(cls, v: float) -> float:
-        if not (-180.0 <= v <= 180.0):
+        if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
             raise ValueError(f"Longitude must be between -180 and 180, got {v}")
         return v
 
@@ -455,6 +458,11 @@ def validate_and_sort_waypoints(v) -> List[Waypoint]:
             ))
         else:
             raise ValueError(f"Invalid waypoint item: {item}")
+
+    if all(wp.order == 0 for wp in parsed):
+        for idx, wp in enumerate(parsed):
+            wp.order = idx
+        return parsed
     return sorted(parsed, key=lambda wp: wp.order)
 
 
@@ -526,6 +534,83 @@ class CommuteBase(SQLModel):
     def validate_waypoints_field(cls, v):
         return validate_and_sort_waypoints(v)
 
+    @field_validator("lat")
+    @classmethod
+    def validate_latitude(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
+            raise ValueError(f"Latitude must be between -90 and 90, got {v}")
+        return v
+
+    @field_validator("lon")
+    @classmethod
+    def validate_longitude(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
+            raise ValueError(f"Longitude must be between -180 and 180, got {v}")
+        return v
+
+    @field_validator("dest_lat")
+    @classmethod
+    def validate_dest_latitude(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if math.isnan(v) or math.isinf(v) or not (-90.0 <= v <= 90.0):
+                raise ValueError(f"Destination latitude must be between -90 and 90, got {v}")
+        return v
+
+    @field_validator("dest_lon")
+    @classmethod
+    def validate_dest_longitude(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if math.isnan(v) or math.isinf(v) or not (-180.0 <= v <= 180.0):
+                raise ValueError(f"Destination longitude must be between -180 and 180, got {v}")
+        return v
+
+    @field_validator("min_temp_caution", "min_temp_no_go")
+    @classmethod
+    def validate_temp_threshold(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v) or not (-100.0 <= v <= 150.0):
+            raise ValueError(f"Temperature threshold must be realistic (between -100 and 150), got {v}")
+        return v
+
+    @field_validator("max_wind_caution", "max_wind_no_go")
+    @classmethod
+    def validate_wind_threshold(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v) or not (0.0 <= v <= 200.0):
+            raise ValueError(f"Wind threshold must be non-negative and realistic (between 0 and 200), got {v}")
+        return v
+
+    @field_validator("rain_threshold")
+    @classmethod
+    def validate_rain_threshold(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v) or not (0.0 <= v <= 100.0):
+            raise ValueError(f"Rain threshold must be a percentage between 0 and 100, got {v}")
+        return v
+
+    @field_validator("schedule_time")
+    @classmethod
+    def validate_schedule_time(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise ValueError("schedule_time must be a string")
+        parts = v.strip().split(":")
+        if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+            raise ValueError(f"schedule_time must be in HH:MM format, got '{v}'")
+        h, m = int(parts[0]), int(parts[1])
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"schedule_time must have hour 0-23 and minute 0-59, got '{v}'")
+        return f"{h:02d}:{m:02d}"
+
+    @field_validator("return_schedule_time")
+    @classmethod
+    def validate_return_schedule_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
+        parts = str(v).strip().split(":")
+        if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+            raise ValueError(f"return_schedule_time must be in HH:MM format, got '{v}'")
+        h, m = int(parts[0]), int(parts[1])
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"return_schedule_time must have hour 0-23 and minute 0-59, got '{v}'")
+        return f"{h:02d}:{m:02d}"
+
     def __init__(self, **data):
         if "unit_system" in data and isinstance(data["unit_system"], str):
             try:
@@ -557,6 +642,26 @@ class CommuteBase(SQLModel):
                 value = validate_and_sort_waypoints(value)
             else:
                 value = []
+        elif name == "schedule_time":
+            if value is not None:
+                parts = str(value).strip().split(":")
+                if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+                    raise ValueError(f"schedule_time must be in HH:MM format, got '{value}'")
+                h, m = int(parts[0]), int(parts[1])
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    raise ValueError(f"schedule_time must have hour 0-23 and minute 0-59, got '{value}'")
+                value = f"{h:02d}:{m:02d}"
+        elif name == "return_schedule_time":
+            if value is not None and str(value).strip():
+                parts = str(value).strip().split(":")
+                if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+                    raise ValueError(f"return_schedule_time must be in HH:MM format, got '{value}'")
+                h, m = int(parts[0]), int(parts[1])
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    raise ValueError(f"return_schedule_time must have hour 0-23 and minute 0-59, got '{value}'")
+                value = f"{h:02d}:{m:02d}"
+            else:
+                value = None
         super().__setattr__(name, value)
 
 class Commute(CommuteBase, table=True):
@@ -565,6 +670,7 @@ class Commute(CommuteBase, table=True):
     assessment_history: List["AssessmentHistory"] = Relationship(back_populates="commute")
 
 class CommuteCreate(CommuteBase):
+    id: Optional[int] = None
     waypoints: Optional[List[Any]] = None
 
 class User(SQLModel, table=True):

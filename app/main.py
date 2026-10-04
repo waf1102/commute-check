@@ -257,21 +257,48 @@ app.include_router(push_router, prefix="/api")
 def health_check():
     return {"status": "healthy"}
 
+# --- Commutes CRUD Endpoints & Aliases ---
 @app.get("/config", response_model=List[Commute])
 @app.get("/api/config", response_model=List[Commute])
+@app.get("/commutes", response_model=List[Commute])
+@app.get("/api/commutes", response_model=List[Commute])
+@app.get("/commute", response_model=List[Commute])
+@app.get("/api/commute", response_model=List[Commute])
 def read_config(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
-    commutes = session.exec(select(Commute).where(Commute.user_id == user.id)).all()
-    return commutes
+    return session.exec(select(Commute).where(Commute.user_id == user.id)).all()
+
+list_commutes = read_config
+
+
+@app.get("/config/{commute_id}", response_model=Commute)
+@app.get("/api/config/{commute_id}", response_model=Commute)
+@app.get("/commutes/{commute_id}", response_model=Commute)
+@app.get("/api/commutes/{commute_id}", response_model=Commute)
+@app.get("/commute/{commute_id}", response_model=Commute)
+@app.get("/api/commute/{commute_id}", response_model=Commute)
+def get_commute_endpoint(commute_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
+    commute = session.get(Commute, commute_id)
+    if not commute or commute.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Commute not found or not authorized")
+    return commute
+
 
 @app.post("/config", response_model=Commute)
 @app.post("/api/config", response_model=Commute)
-def create_or_update_config(commute_data: Commute, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
+@app.post("/commutes", response_model=Commute)
+@app.post("/api/commutes", response_model=Commute)
+@app.post("/commute", response_model=Commute)
+@app.post("/api/commute", response_model=Commute)
+def create_or_update_config(commute_data: CommuteCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     if commute_data.id:
         existing_commute = session.get(Commute, commute_data.id)
         if existing_commute and existing_commute.user_id == user.id:
             update_data = commute_data.model_dump(exclude_unset=True)
+            update_data.pop("id", None)
+            update_data.pop("user_id", None)
             for key, value in update_data.items():
                 setattr(existing_commute, key, value)
+            existing_commute.user_id = user.id
             session.add(existing_commute)
             session.commit()
             session.refresh(existing_commute)
@@ -280,15 +307,20 @@ def create_or_update_config(commute_data: Commute, session: Session = Depends(ge
             raise HTTPException(status_code=404, detail="Commute not found or not authorized")
         else:
             # ID provided but not found, treat as new
-            commute_data.id = None
-            new_commute = Commute.model_validate(commute_data)
+            new_data = commute_data.model_dump(exclude_unset=True)
+            new_data.pop("id", None)
+            new_data.pop("user_id", None)
+            new_commute = Commute.model_validate(new_data)
             new_commute.user_id = user.id
             session.add(new_commute)
             session.commit()
             session.refresh(new_commute)
             commute_to_return = new_commute
     else:
-        new_commute = Commute.model_validate(commute_data)
+        new_data = commute_data.model_dump(exclude_unset=True)
+        new_data.pop("id", None)
+        new_data.pop("user_id", None)
+        new_commute = Commute.model_validate(new_data)
         new_commute.user_id = user.id
         session.add(new_commute)
         session.commit()
@@ -300,8 +332,38 @@ def create_or_update_config(commute_data: Commute, session: Session = Depends(ge
 
     return commute_to_return
 
+create_commute = create_or_update_config
+
+
+@app.put("/commutes/{commute_id}", response_model=Commute)
+@app.put("/api/commutes/{commute_id}", response_model=Commute)
+@app.put("/config/{commute_id}", response_model=Commute)
+@app.put("/api/config/{commute_id}", response_model=Commute)
+@app.put("/commute/{commute_id}", response_model=Commute)
+@app.put("/api/commute/{commute_id}", response_model=Commute)
+def update_commute_endpoint(commute_id: int, commute_data: CommuteCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
+    existing_commute = session.get(Commute, commute_id)
+    if not existing_commute or existing_commute.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Commute not found or not authorized")
+    update_data = commute_data.model_dump(exclude_unset=True)
+    update_data.pop("id", None)
+    update_data.pop("user_id", None)
+    for key, value in update_data.items():
+        setattr(existing_commute, key, value)
+    existing_commute.user_id = user.id
+    session.add(existing_commute)
+    session.commit()
+    session.refresh(existing_commute)
+    schedule_commute_check(existing_commute)
+    return existing_commute
+
+
 @app.delete("/config/{commute_id}")
 @app.delete("/api/config/{commute_id}")
+@app.delete("/commutes/{commute_id}")
+@app.delete("/api/commutes/{commute_id}")
+@app.delete("/commute/{commute_id}")
+@app.delete("/api/commute/{commute_id}")
 def delete_config(commute_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     commute = session.get(Commute, commute_id)
     if not commute or commute.user_id != user.id:
@@ -314,6 +376,8 @@ def delete_config(commute_id: int, session: Session = Depends(get_session), user
     clear_commute_jobs(commute_id)
 
     return {"status": "deleted"}
+
+delete_commute_route = delete_config
 
 @app.post("/assess", response_model=AssessmentResult)
 @app.post("/api/assess", response_model=AssessmentResult)
@@ -502,43 +566,6 @@ async def test_webhook(commute: CommuteCreate):
         await notification_service_instance.send_notification(commute.webhook_url, assessment)
     
     return assessment
-
-# --- Commutes CRUD Endpoints ---
-@app.get("/commutes", response_model=List[Commute])
-@app.get("/api/commutes", response_model=List[Commute])
-def list_commutes(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
-    return session.exec(select(Commute).where(Commute.user_id == user.id)).all()
-
-@app.post("/commutes", response_model=Commute)
-@app.post("/api/commutes", response_model=Commute)
-def create_commute(commute_data: CommuteCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
-    new_commute = Commute.model_validate(commute_data)
-    new_commute.user_id = user.id
-    session.add(new_commute)
-    session.commit()
-    session.refresh(new_commute)
-    schedule_commute_check(new_commute)
-    return new_commute
-
-@app.put("/commutes/{commute_id}", response_model=Commute)
-@app.put("/api/commutes/{commute_id}", response_model=Commute)
-def update_commute_endpoint(commute_id: int, commute_data: CommuteCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
-    existing_commute = session.get(Commute, commute_id)
-    if not existing_commute or existing_commute.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Commute not found or not authorized")
-    update_data = commute_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(existing_commute, key, value)
-    session.add(existing_commute)
-    session.commit()
-    session.refresh(existing_commute)
-    schedule_commute_check(existing_commute)
-    return existing_commute
-
-@app.delete("/commutes/{commute_id}")
-@app.delete("/api/commutes/{commute_id}")
-def delete_commute_route(commute_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
-    return delete_config(commute_id, session, user)
 
 # --- Route Check Endpoints ---
 async def execute_route_check(

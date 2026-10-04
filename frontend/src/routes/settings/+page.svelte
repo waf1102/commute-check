@@ -66,6 +66,7 @@
                 name: wp.name || `Waypoint ${idx + 1}`,
                 lat: typeof wp.lat === 'number' ? wp.lat : parseFloat(wp.lat) || 0,
                 lon: typeof wp.lon === 'number' ? wp.lon : parseFloat(wp.lon) || 0,
+                order: wp.order !== undefined && wp.order !== null ? Number(wp.order) : idx,
                 status: wp.status
             }));
         }
@@ -86,14 +87,17 @@
             id: `wp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             name: `Waypoint ${nextNum}`,
             lat: settings.lat ? parseFloat(Number(settings.lat).toFixed(4)) : 51.5074,
-            lon: settings.lon ? parseFloat(Number(settings.lon).toFixed(4)) : -0.1278
+            lon: settings.lon ? parseFloat(Number(settings.lon).toFixed(4)) : -0.1278,
+            order: settings.waypoints?.length || 0
         };
         settings.waypoints = [...(settings.waypoints || []), newWp];
     }
 
     function removeWaypoint(idx: number) {
         if (!settings.waypoints) return;
-        settings.waypoints = settings.waypoints.filter((_, i) => i !== idx);
+        const remaining = settings.waypoints.filter((_, i) => i !== idx);
+        remaining.forEach((wp, i) => { wp.order = i; });
+        settings.waypoints = remaining;
     }
 
     function moveWaypointUp(idx: number) {
@@ -102,6 +106,7 @@
         const temp = list[idx - 1];
         list[idx - 1] = list[idx];
         list[idx] = temp;
+        list.forEach((wp, i) => { wp.order = i; });
         settings.waypoints = list;
     }
 
@@ -111,6 +116,7 @@
         const temp = list[idx + 1];
         list[idx + 1] = list[idx];
         list[idx] = temp;
+        list.forEach((wp, i) => { wp.order = i; });
         settings.waypoints = list;
     }
 
@@ -195,7 +201,10 @@
                 dest_lat: settings.dest_lat !== null && settings.dest_lat !== undefined && !isNaN(settings.dest_lat) ? settings.dest_lat : null,
                 dest_lon: settings.dest_lon !== null && settings.dest_lon !== undefined && !isNaN(settings.dest_lon) ? settings.dest_lon : null,
                 return_schedule_time: settings.return_schedule_time || null,
-                waypoints: settings.waypoints || []
+                waypoints: (settings.waypoints || []).map((wp, idx) => ({
+                    ...wp,
+                    order: idx
+                }))
             };
 
             await saveCommuteConfig(payload);

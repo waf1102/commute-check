@@ -35,6 +35,7 @@ export interface Waypoint {
   name: string;
   lat: number;
   lon: number;
+  order?: number;
   status?: string;
 }
 
@@ -89,7 +90,7 @@ export async function authenticatedFetch(input: RequestInfo, init?: RequestInit)
 }
 
 export async function getCommuteData(): Promise<any> { // Replace 'any' with actual type later
-  const response = await authenticatedFetch(`${API_BASE_URL}/commute`);
+  const response = await authenticatedFetch(`${API_BASE_URL}/commutes`);
   if (!response.ok) {
     throw new Error('Failed to fetch commute data');
   }
@@ -101,6 +102,14 @@ export async function getCommuteConfig(): Promise<any> {
   const response = await authenticatedFetch(`${API_BASE_URL}/config`);
   if (!response.ok) {
     throw new Error('Failed to fetch commute config');
+  }
+  return response.json();
+}
+
+export async function getCommute(id: number): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch commute');
   }
   return response.json();
 }
@@ -117,12 +126,46 @@ export async function saveCommuteConfig(config: any): Promise<any> {
   return response.json();
 }
 
+export async function createCommute(commute: any): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/commutes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commute),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create commute');
+  }
+  return response.json();
+}
+
+export async function updateCommute(id: number, commute: any): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commute),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update commute');
+  }
+  return response.json();
+}
+
 export async function deleteCommuteConfig(id: number): Promise<any> {
   const response = await authenticatedFetch(`${API_BASE_URL}/config/${id}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
     throw new Error('Failed to delete commute config');
+  }
+  return response.json();
+}
+
+export async function deleteCommute(id: number): Promise<any> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete commute');
   }
   return response.json();
 }
