@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
-from datetime import date, datetime, timezone
-from typing import List, Optional
+from datetime import date, datetime, timezone, timedelta
+from typing import List, Optional, Union
 
 from app.database import get_session
 from app.security import get_current_user
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 @router.get("/commute-stats/daily", response_model=List[DailyCommuteStats])
 def get_daily_stats(
-    user_id: int,
+    user_id: Optional[Union[int, str]] = Query(default=None, description="User ID (defaults to current user)"),
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     current_user: User = Depends(get_current_user),
@@ -21,12 +21,20 @@ def get_daily_stats(
 ):
     """
     Retrieves daily commute statistics for a given user within a date range.
-    The user_id in the path must match the authenticated user's ID.
+    Defaults to current authenticated user's ID if user_id is omitted or empty.
     """
-    if user_id != current_user.id:
+    if user_id is None or (isinstance(user_id, str) and user_id.strip() == ""):
+        target_user_id = current_user.id
+    else:
+        try:
+            target_user_id = int(user_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Invalid user_id: must be an integer")
+
+    if target_user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access analytics for this user.")
 
-    return get_daily_commute_stats(db, user_id, start_date, end_date)
+    return get_daily_commute_stats(db, target_user_id, start_date, end_date)
 
 @router.post("/record-decision", response_model=DecisionRecordResponse)
 def record_commute_decision(
@@ -70,24 +78,49 @@ def record_commute_decision(
         db.refresh(record)
         return record
 
-    # 2. Match today's assessment run if present without a decision
+    # 2. Match unassigned assessment run
     target_dt = request.timestamp or datetime.now(timezone.utc)
     if target_dt.tzinfo is None:
         target_dt = target_dt.replace(tzinfo=timezone.utc)
-    target_date = request.date or target_dt.date()
-    start_of_day = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
-    end_of_day = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=timezone.utc)
+
+    # Determine date range for searching candidates
+    # Handle timezone differences across local day boundaries
+    if request.date:
+        target_date = request.date
+        # Search from start to end of target_date in UTC, buffered by 14 hours for timezone offsets
+        start_bound = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=timezone.utc) - timedelta(hours=14)
+        end_bound = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, 999999, tzinfo=timezone.utc) + timedelta(hours=14)
+    else:
+        # Default to today / past 24 hours around target_dt
+        start_bound = target_dt - timedelta(hours=24)
+        end_bound = target_dt + timedelta(hours=6)
 
     query = select(AssessmentHistory).where(
         AssessmentHistory.user_id == current_user.id,
-        AssessmentHistory.timestamp >= start_of_day,
-        AssessmentHistory.timestamp <= end_of_day
+        AssessmentHistory.timestamp >= start_bound,
+        AssessmentHistory.timestamp <= end_bound
     )
     if request.commute_id is not None:
         query = query.where(AssessmentHistory.commute_id == request.commute_id)
 
     candidates = db.exec(query.order_by(AssessmentHistory.timestamp.desc())).all()
-    unassigned = next((c for c in candidates if not c.commute_type or c.commute_type in ("undecided", "unknown")), None)
+
+    # Look for an unassigned candidate
+    unassigned = None
+    if request.date:
+        tz = target_dt.tzinfo or timezone.utc
+        for c in candidates:
+            if not c.commute_type or c.commute_type in ("undecided", "unknown", ""):
+                c_date_utc = c.timestamp.date()
+                c_date_local = c.timestamp.astimezone(tz).date() if c.timestamp.tzinfo else c_date_utc
+                if c_date_utc == target_date or c_date_local == target_date:
+                    unassigned = c
+                    break
+    else:
+        unassigned = next(
+            (c for c in candidates if not c.commute_type or c.commute_type in ("undecided", "unknown", "")),
+            None
+        )
 
     if unassigned:
         unassigned.commute_type = commute_type

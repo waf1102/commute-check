@@ -137,12 +137,16 @@ def get_daily_commute_stats(
 ) -> List[Dict[str, Any]]:
     """
     Retrieves daily commute statistics for a given user within a date range.
-    Aggregates data into days ridden, days driven, total days, and average score.
+    Aggregates data into days ridden, days driven, total days, average score,
+    total distance commuted, time saved, and fuel saved.
     """
+    if start_date > end_date:
+        return []
+
     # Fetch raw data for the user within the date range
     # Convert date objects to datetime for comparison with AssessmentHistory.timestamp
-    start_datetime = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
-    end_datetime = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc) # End of the day
+    start_datetime = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0, tzinfo=timezone.utc)
+    end_datetime = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, 999999, tzinfo=timezone.utc)
 
     raw_data = db.exec(
         select(AssessmentHistory).where(
@@ -155,8 +159,7 @@ def get_daily_commute_stats(
     if not raw_data:
         return []
 
-    # Convert to list of dicts for pandas
-    # Ensure all relevant fields are present, including overall_score / assessment_result for score
+    # Convert to list of dicts for pandas aggregation
     data_dicts = []
     for record in raw_data:
         score_val = record.overall_score
@@ -165,37 +168,63 @@ def get_daily_commute_stats(
         if score_val is None and getattr(record, "assessment_result", None):
             score_val = getattr(record.assessment_result, "score", None)
 
+        dist = float(record.commute_distance_km or 0.0)
+        dur = float(record.duration_minutes or 0.0)
+
         data_dicts.append({
             "timestamp": record.timestamp,
             "commute_type": record.commute_type,
-            "assessment_result_score": score_val
+            "assessment_result_score": score_val,
+            "distance_km": dist,
+            "duration_minutes": dur,
         })
 
     df = pd.DataFrame(data_dicts)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df.set_index('timestamp', inplace=True)
+    df['date'] = df['timestamp'].dt.date
 
-    # Resample to daily frequency and aggregate
-    daily_stats = df.resample('D').agg(
-        days_ridden=('commute_type', lambda x: (x == 'riding').sum()),
-        days_driven=('commute_type', lambda x: (x == 'driving').sum()),
-        avg_score=('assessment_result_score', 'mean')
-    ).fillna(0) # Fill NaN for days with no data
-
-    # Calculate days_total
-    daily_stats['days_total'] = daily_stats['days_ridden'] + daily_stats['days_driven']
-
-    # Convert DataFrame to a list of dicts for API response
+    grouped = df.groupby('date')
     result = []
-    for index, row in daily_stats.iterrows():
-        # Only include days where there was some activity or score
-        if row['days_total'] > 0 or row['avg_score'] > 0:
+    for d, group in grouped:
+        ridden = group[group['commute_type'] == 'riding']
+        driven = group[group['commute_type'] == 'driving']
+        days_ridden = int(len(ridden))
+        days_driven = int(len(driven))
+        days_total = days_ridden + days_driven
+
+        scores = group['assessment_result_score'].dropna()
+        avg_score = round(float(scores.mean()), 2) if len(scores) > 0 else 0.0
+        total_dist = round(float(group['distance_km'].sum()), 2)
+
+        ridden_dist = float(ridden['distance_km'].sum())
+        ridden_dur = float(ridden['duration_minutes'].sum())
+
+        # Fuel saved: based on standard 25 MPG car baseline: (miles / 25 mpg)
+        # 1 km = 0.621371 miles
+        fuel_saved = round((ridden_dist * 0.621371) / 25.0, 2) if ridden_dist > 0 else 0.0
+
+        # Time saved: estimating ~20% commute time saved when riding vs driving traffic;
+        # fallback to distance or count if duration not specified
+        if ridden_dur > 0:
+            time_saved = round(ridden_dur * 0.20, 2)
+        elif ridden_dist > 0:
+            time_saved = round(ridden_dist * 0.5, 2)
+        elif days_ridden > 0:
+            time_saved = round(days_ridden * 10.0, 2)
+        else:
+            time_saved = 0.0
+
+        if days_total > 0 or avg_score > 0 or total_dist > 0:
             result.append({
-                "date": index.date(), # Convert timestamp index back to date object
-                "days_ridden": int(row['days_ridden']),
-                "days_driven": int(row['days_driven']),
-                "days_total": int(row['days_total']),
-                "avg_score": round(row['avg_score'], 2) if row['avg_score'] is not None else None
+                "date": d,
+                "days_ridden": days_ridden,
+                "days_driven": days_driven,
+                "days_total": days_total,
+                "avg_score": avg_score,
+                "total_distance_km": total_dist,
+                "time_saved_minutes": time_saved,
+                "fuel_saved_gallons": fuel_saved,
             })
+
     return result
 
