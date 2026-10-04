@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import 'leaflet/dist/leaflet.css';
   import { page } from '$app/state';
   import { jwt_token, logout, getUserEmailFromToken } from '$lib/auth';
   let email = $derived(getUserEmailFromToken($jwt_token));
