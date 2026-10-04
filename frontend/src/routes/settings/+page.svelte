@@ -4,6 +4,8 @@
     import { jwt_token } from '$lib/auth';
     import { get } from 'svelte/store';
     import DayOfWeekSelector from '$lib/components/DayOfWeekSelector.svelte';
+    import LocationPickerMap from '$lib/components/LocationPickerMap.svelte';
+    import AddressSearch from '$lib/components/AddressSearch.svelte';
 
     interface CommuteSettings {
         id?: number;
@@ -322,6 +324,32 @@
             }
         }
     }
+
+    async function useCurrentLocationForWaypoint(idx: number) {
+        if (!settings.waypoints || !settings.waypoints[idx]) return;
+        if (!navigator.geolocation) {
+            testStatus = "❌ Geolocation is not supported by your browser";
+            setTimeout(() => testStatus = '', 4000);
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = parseFloat(pos.coords.latitude.toFixed(4));
+                const lon = parseFloat(pos.coords.longitude.toFixed(4));
+                if (settings.waypoints && settings.waypoints[idx]) {
+                    settings.waypoints[idx].lat = lat;
+                    settings.waypoints[idx].lon = lon;
+                }
+            },
+            (err) => {
+                console.error("Waypoint geolocation error", err);
+                testStatus = "❌ Permission denied or unable to retrieve location.";
+                setTimeout(() => testStatus = '', 4000);
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    }
 </script>
 
 <div class="container layout">
@@ -371,7 +399,58 @@
 
             <hr>
 
+            <div class="interactive-map-section" data-testid="interactive-map-section">
+                <h3>🗺️ Interactive Route & Location Map Picker</h3>
+                <p class="section-desc">
+                    Click the map to drop pins, drag existing markers, search addresses with Nominatim, or use current location to set Origin, Destination, and Waypoints visually without manual typing.
+                </p>
+
+                <LocationPickerMap
+                    origin={{ lat: settings.lat, lon: settings.lon, name: 'Origin' }}
+                    destination={settings.dest_lat !== null && settings.dest_lon !== null && settings.dest_lat !== undefined && settings.dest_lon !== undefined ? { lat: settings.dest_lat, lon: settings.dest_lon, name: settings.dest_name || 'Destination' } : null}
+                    waypoints={settings.waypoints || []}
+                    onupdateOrigin={(coords) => {
+                        settings.lat = coords.lat;
+                        settings.lon = coords.lon;
+                    }}
+                    onupdateDestination={(coords) => {
+                        settings.dest_lat = coords.lat;
+                        settings.dest_lon = coords.lon;
+                    }}
+                    onupdateWaypoint={(idx, coords) => {
+                        if (settings.waypoints && settings.waypoints[idx]) {
+                            settings.waypoints[idx].lat = coords.lat;
+                            settings.waypoints[idx].lon = coords.lon;
+                        }
+                    }}
+                    onaddWaypoint={(coords) => {
+                        const nextNum = (settings.waypoints?.length || 0) + 1;
+                        const newWp: Waypoint = {
+                            id: `wp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                            name: `Waypoint ${nextNum}`,
+                            lat: coords.lat,
+                            lon: coords.lon,
+                            order: settings.waypoints?.length || 0
+                        };
+                        settings.waypoints = [...(settings.waypoints || []), newWp];
+                    }}
+                />
+            </div>
+
+            <hr>
+
             <h3>Origin Location (Home / Departure)</h3>
+            <div class="field">
+                <label for="origin-address-search-input">Search Origin Address (Nominatim)</label>
+                <AddressSearch
+                    placeholder="Search origin address (e.g., 10 Downing St, London)..."
+                    testId="origin-address-search"
+                    onselect={(res) => {
+                        settings.lat = res.lat;
+                        settings.lon = res.lon;
+                    }}
+                />
+            </div>
             <div class="field-row">
                 <div class="field flex-1">
                     <label for="lat">Origin Latitude</label>
@@ -391,6 +470,20 @@
 
             <h3>Destination & Return Route (Phase 15 Multi-Route)</h3>
             <p class="section-desc">Configure your destination to evaluate weather for your return journey.</p>
+            <div class="field">
+                <label for="dest-address-search-input">Search Destination Address (Nominatim)</label>
+                <AddressSearch
+                    placeholder="Search destination address (e.g., Canary Wharf, London)..."
+                    testId="dest-address-search"
+                    onselect={(res) => {
+                        settings.dest_lat = res.lat;
+                        settings.dest_lon = res.lon;
+                        if (!settings.dest_name) {
+                            settings.dest_name = res.name;
+                        }
+                    }}
+                />
+            </div>
             <div class="field">
                 <label for="dest_name">Destination Name</label>
                 <input type="text" id="dest_name" placeholder="e.g. Office, Campus, Downtown" bind:value={settings.dest_name}>
@@ -503,6 +596,30 @@
                                             <span class="waypoint-inline-error" data-testid="wp-lon-error-{idx}">Longitude must be between -180 and 180</span>
                                         {/if}
                                     </div>
+                                </div>
+                                <div class="field" style="margin-top: 8px;">
+                                    <label for="wp_search_{idx}">Search Waypoint Address (Nominatim)</label>
+                                    <AddressSearch
+                                        placeholder="Search waypoint address (e.g., Coffee, Junction)..."
+                                        testId="wp-address-search-{idx}"
+                                        onselect={(res) => {
+                                            wp.lat = res.lat;
+                                            wp.lon = res.lon;
+                                            if (!wp.name || wp.name.startsWith('Waypoint ')) {
+                                                wp.name = res.name;
+                                            }
+                                        }}
+                                    />
+                                </div>
+                                <div class="field-actions" style="margin-top: 4px;">
+                                    <button
+                                        type="button"
+                                        class="secondary small-btn"
+                                        onclick={() => useCurrentLocationForWaypoint(idx)}
+                                        data-testid="wp-current-loc-btn-{idx}"
+                                    >
+                                        📍 Set Waypoint to Current Location
+                                    </button>
                                 </div>
                             </div>
                         {/each}
