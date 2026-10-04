@@ -114,5 +114,18 @@ describe('History Page', () => {
     render(HistoryPage);
     expect(await screen.findByText(/Error fetching commute data:/i)).toBeInTheDocument();
   });
+
+  it('calls getCommuteStats with undefined userId when user store is unpopulated', async () => {
+    (user.subscribe as any).mockImplementationOnce((fn: any) => {
+      fn(null);
+      return () => {};
+    });
+    render(HistoryPage);
+    expect(api.getCommuteStats).toHaveBeenCalledWith(
+      undefined,
+      expect.any(String),
+      expect.any(String)
+    );
+  });
 });
 

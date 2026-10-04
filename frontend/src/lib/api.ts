@@ -168,13 +168,24 @@ export async function checkRoute(params: {
   return response.json();
 }
 
-export async function getCommuteStats(userId: string, startDate: string, endDate: string): Promise<any> {
-  const queryParams = new URLSearchParams({
-    user_id: userId,
-    start_date: startDate,
-    end_date: endDate,
-  });
-  const response = await authenticatedFetch(`${API_BASE_URL}/analytics/commute-stats/daily?${queryParams.toString()}`);
+export async function getCommuteStats(
+  userId?: string | number | null,
+  startDate?: string,
+  endDate?: string
+): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (userId !== undefined && userId !== null && String(userId).trim() !== '') {
+    queryParams.append('user_id', String(userId).trim());
+  }
+  if (startDate) {
+    queryParams.append('start_date', startDate);
+  }
+  if (endDate) {
+    queryParams.append('end_date', endDate);
+  }
+  const queryStr = queryParams.toString();
+  const url = `${API_BASE_URL}/analytics/commute-stats/daily${queryStr ? '?' + queryStr : ''}`;
+  const response = await authenticatedFetch(url);
   if (!response.ok) {
     throw new Error('Failed to fetch commute stats');
   }

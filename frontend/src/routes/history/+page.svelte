@@ -13,9 +13,9 @@
 
   async function fetchHistory() {
     error = null;
-    let userId = '';
+    let userId: string | undefined = undefined;
     const unsubscribe = user.subscribe((u: any) => {
-      if (u) userId = u.id;
+      if (u && u.id) userId = String(u.id);
     });
     unsubscribe();
 
