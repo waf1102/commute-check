@@ -3,4 +3,3 @@ build
 .svelte-kit
 .env
 .npm
-package-lock.json
