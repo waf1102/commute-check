@@ -165,7 +165,7 @@
       <section class="card">
         <h2><span class="step">1</span> Where do you travel?</h2>
         <p class="muted">
-          A nearby town is enough for a weather check. Use your location or exact coordinates for
+          A nearby town is enough for a weather check. Use your location or choose on the map for
           more precision.
         </p>
         <PlacePicker
