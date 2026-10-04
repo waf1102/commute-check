@@ -14,6 +14,142 @@ from .push.vapid import get_or_create_vapid_keys
 logger = logging.getLogger(__name__)
 
 
+def _safe_get(obj: Any, *keys: str, default: Any = None) -> Any:
+    """
+    Safely retrieves the first found key from an object or dictionary,
+    supporting nested payloads ('assessment', 'data', 'result', etc.).
+    Never raises AttributeError or KeyError.
+    """
+    if obj is None:
+        return default
+
+    # First check direct keys on obj
+    for key in keys:
+        if isinstance(obj, dict):
+            if key in obj and obj[key] is not None:
+                return obj[key]
+        else:
+            val = getattr(obj, key, None)
+            if val is not None:
+                return val
+
+    # If not found directly, check nested payload containers
+    nested_containers = (
+        "assessment",
+        "data",
+        "result",
+        "assessment_result",
+        "payload",
+        "leg_assessment",
+        "outbound_leg",
+        "return_leg",
+        "route_assessment",
+    )
+    for container in nested_containers:
+        nested_obj = None
+        if isinstance(obj, dict):
+            nested_obj = obj.get(container)
+        else:
+            nested_obj = getattr(obj, container, None)
+
+        if nested_obj is not None and not isinstance(nested_obj, (str, int, float, bool)):
+            val = _safe_get(nested_obj, *keys, default=None)
+            if val is not None:
+                return val
+
+    return default
+
+
+def _extract_status(assessment: Any, default: str = "Caution") -> str:
+    """
+    Safely extracts and normalizes the status string from an assessment
+    whether it is a dict, nested dict, Pydantic model, or arbitrary object.
+    Never raises AttributeError or KeyError.
+    """
+    if assessment is None:
+        return default
+
+    raw_status = None
+    if isinstance(assessment, dict):
+        raw_status = assessment.get("status")
+        if raw_status is None:
+            raw_status = assessment.get("overall_status")
+        if raw_status is None:
+            # Check nested containers
+            for container in (
+                "assessment",
+                "data",
+                "result",
+                "assessment_result",
+                "payload",
+                "leg_assessment",
+                "outbound_leg",
+                "return_leg",
+                "route_assessment",
+            ):
+                nested = assessment.get(container)
+                if isinstance(nested, dict):
+                    raw_status = nested.get("status") or nested.get("overall_status")
+                    if raw_status is not None:
+                        break
+                elif nested is not None:
+                    raw_status = getattr(nested, "status", None) or getattr(nested, "overall_status", None)
+                    if raw_status is not None:
+                        break
+    else:
+        raw_status = getattr(assessment, "status", None)
+        if raw_status is None:
+            raw_status = getattr(assessment, "overall_status", None)
+        if raw_status is None:
+            for container in (
+                "assessment",
+                "data",
+                "result",
+                "assessment_result",
+                "payload",
+                "leg_assessment",
+                "outbound_leg",
+                "return_leg",
+                "route_assessment",
+            ):
+                nested = getattr(assessment, container, None)
+                if isinstance(nested, dict):
+                    raw_status = nested.get("status") or nested.get("overall_status")
+                    if raw_status is not None:
+                        break
+                elif nested is not None:
+                    raw_status = getattr(nested, "status", None) or getattr(nested, "overall_status", None)
+                    if raw_status is not None:
+                        break
+
+    if raw_status is None:
+        return default
+
+    # If raw_status is a dict, e.g. {"value": "Caution"} or {"status": "Caution"}
+    if isinstance(raw_status, dict):
+        raw_status = (
+            raw_status.get("value")
+            or raw_status.get("status")
+            or raw_status.get("name")
+            or default
+        )
+
+    # If raw_status has a .value (like Enum / Status)
+    if hasattr(raw_status, "value"):
+        raw_status = raw_status.value
+
+    st_str = str(raw_status).strip()
+    st_lower = st_str.lower()
+    if st_lower in ("go", "status.go", "safe", "ok"):
+        return Status.GO.value
+    elif st_lower in ("caution", "status.caution", "warning", "warn"):
+        return Status.CAUTION.value
+    elif st_lower in ("no-go", "no_go", "nogo", "status.no_go", "danger", "stop", "fail", "failed"):
+        return Status.NO_GO.value
+
+    return st_str if st_str else default
+
+
 def dispatch_web_push_notification(
     user_id: int,
     title: str,
@@ -41,16 +177,26 @@ def dispatch_web_push_notification(
     # Extract hazard metadata from assessment if passed and not explicitly provided
     if assessment is not None:
         pinpoints = NotificationService.extract_hazard_pinpoints(assessment)
-        if pinpoints and not has_route_hazard:
+        if pinpoints:
             has_route_hazard = True
             hazard_count = len(pinpoints)
-            first_p = pinpoints[0]
-            primary_hazard_location = (
-                first_p.get("location")
-                or first_p.get("location_name")
-                or first_p.get("name")
-                or ""
-            )
+            if not primary_hazard_location:
+                first_p = pinpoints[0]
+                primary_hazard_location = (
+                    first_p.get("location")
+                    or first_p.get("location_name")
+                    or first_p.get("name")
+                    or first_p.get("place")
+                    or ""
+                )
+
+    # Fallback title/body from assessment if missing
+    if assessment is not None and (not title or not body):
+        auto_title, auto_body = NotificationService()._format_message(assessment)
+        if not title:
+            title = auto_title
+        if not body:
+            body = auto_body
 
     private_key, _ = get_or_create_vapid_keys()
     user = session.get(User, user_id)
@@ -127,47 +273,141 @@ class NotificationService:
         Extracts hazard pinpoints or waypoint risks from an assessment object or dict.
         Returns a list of standardized dicts with hazard, location, encounter time, etc.
         """
+        if assessment is None:
+            return []
+
         raw_pinpoints = None
-        if isinstance(assessment, dict):
+        if isinstance(assessment, list):
+            raw_pinpoints = assessment
+        elif isinstance(assessment, dict):
             raw_pinpoints = (
                 assessment.get("hazard_pinpoints")
                 or assessment.get("waypoint_risks")
                 or assessment.get("waypoint_hazards")
+                or assessment.get("route_hazards")
+                or assessment.get("hazards")
                 or assessment.get("waypoints")
             )
+            if not raw_pinpoints:
+                # Check nested containers
+                for container in (
+                    "assessment",
+                    "data",
+                    "result",
+                    "assessment_result",
+                    "payload",
+                    "leg_assessment",
+                    "outbound_leg",
+                    "return_leg",
+                    "route_assessment",
+                ):
+                    nested = assessment.get(container)
+                    if nested is not None:
+                        nested_pinpoints = NotificationService.extract_hazard_pinpoints(nested)
+                        if nested_pinpoints:
+                            return nested_pinpoints
         else:
             raw_pinpoints = (
                 getattr(assessment, "hazard_pinpoints", None)
                 or getattr(assessment, "waypoint_risks", None)
                 or getattr(assessment, "waypoint_hazards", None)
+                or getattr(assessment, "route_hazards", None)
+                or getattr(assessment, "hazards", None)
                 or getattr(assessment, "waypoints", None)
             )
+            if not raw_pinpoints:
+                for container in (
+                    "assessment",
+                    "data",
+                    "result",
+                    "assessment_result",
+                    "payload",
+                    "leg_assessment",
+                    "outbound_leg",
+                    "return_leg",
+                    "route_assessment",
+                ):
+                    nested = getattr(assessment, container, None)
+                    if nested is not None:
+                        nested_pinpoints = NotificationService.extract_hazard_pinpoints(nested)
+                        if nested_pinpoints:
+                            return nested_pinpoints
 
         if not raw_pinpoints:
+            # Also check waypoint_evaluations or segments if available
+            evals = _safe_get(assessment, "waypoint_evaluations", default=None)
+            if evals and isinstance(evals, list):
+                collected = []
+                for ev in evals:
+                    sub_pts = NotificationService.extract_hazard_pinpoints(ev)
+                    collected.extend(sub_pts)
+                if collected:
+                    return collected
+
+            segs = _safe_get(assessment, "segments", default=None)
+            if segs and isinstance(segs, list):
+                collected = []
+                for seg in segs:
+                    sub_pts = NotificationService.extract_hazard_pinpoints(seg)
+                    collected.extend(sub_pts)
+                if collected:
+                    return collected
+
             return []
+
+        if isinstance(raw_pinpoints, dict):
+            raw_pinpoints = [raw_pinpoints]
 
         standardized: List[Dict[str, Any]] = []
         for item in raw_pinpoints:
+            if item is None:
+                continue
             if isinstance(item, dict):
                 p = dict(item)
-            elif hasattr(item, "model_dump"):
+            elif hasattr(item, "model_dump") and callable(item.model_dump):
                 p = item.model_dump()
+            elif hasattr(item, "dict") and callable(item.dict):
+                p = item.dict()
             elif hasattr(item, "__dict__"):
                 p = dict(item.__dict__)
             else:
                 p = {"description": str(item)}
 
             # Skip safe waypoints that don't represent hazards
-            status = p.get("status")
+            status = p.get("status") or p.get("severity")
             if status is not None:
-                st_val = getattr(status, "value", str(status)).lower()
+                if isinstance(status, dict):
+                    st_val = str(status.get("value") or status.get("status") or "").lower()
+                elif hasattr(status, "value"):
+                    st_val = str(status.value).lower()
+                else:
+                    st_val = str(status).lower()
+
                 if (
-                    st_val == "go"
+                    st_val in ("go", "safe", "ok", "status.go")
                     and not p.get("hazard")
                     and not p.get("hazard_type")
                     and not p.get("parameter")
+                    and not p.get("parameter_breached")
+                    and not p.get("reason")
                 ):
                     continue
+
+            # Aliasing normalization
+            if "location" in p and "location_name" not in p:
+                p["location_name"] = p["location"]
+            elif "location_name" in p and "location" not in p:
+                p["location"] = p["location_name"]
+
+            if "hazard" in p and "parameter" not in p:
+                p["parameter"] = p["hazard"]
+            elif "parameter" in p and "hazard" not in p:
+                p["hazard"] = p["parameter"]
+
+            if "time" in p and "encounter_time" not in p:
+                p["encounter_time"] = p["time"]
+            elif "encounter_time" in p and "time" not in p:
+                p["time"] = p["encounter_time"]
 
             standardized.append(p)
 
@@ -188,19 +428,13 @@ class NotificationService:
         if pinpoints is None:
             pinpoints = self.extract_hazard_pinpoints(assessment)
 
-        status_val = getattr(getattr(assessment, "status", None), "value", None)
-        if not status_val:
-            status_val = str(getattr(assessment, "status", "Caution"))
+        status_val = _extract_status(assessment, default="Caution")
 
         # Resolve leg or commute label
-        resolved_name = commute_name or getattr(assessment, "commute_name", None)
-        if not resolved_name and isinstance(assessment, dict):
-            resolved_name = assessment.get("commute_name")
+        resolved_name = commute_name or _safe_get(assessment, "commute_name")
 
         if not resolved_name:
-            resolved_leg = leg_type or getattr(assessment, "leg_type", None)
-            if not resolved_leg and isinstance(assessment, dict):
-                resolved_leg = assessment.get("leg_type")
+            resolved_leg = leg_type or _safe_get(assessment, "leg_type")
 
             if resolved_leg:
                 leg_lower = str(resolved_leg).lower()
@@ -231,6 +465,7 @@ class NotificationService:
                 p.get("encounter_time")
                 or p.get("time")
                 or p.get("estimated_time")
+                or p.get("estimated_arrival_time")
                 or p.get("timestamp")
                 or p.get("eta")
                 or ""
@@ -241,18 +476,25 @@ class NotificationService:
                 p.get("hazard")
                 or p.get("hazard_type")
                 or p.get("parameter")
+                or p.get("parameter_breached")
                 or p.get("reason")
                 or p.get("description")
+                or p.get("warning_message")
+                or p.get("title")
                 or ""
             )
-            value = (
-                p.get("value")
-                or p.get("detail")
-                or p.get("wind_speed")
-                or p.get("precip_prob")
-                or p.get("temperature")
-                or ""
-            )
+            value = None
+            for k in (
+                "value",
+                "detail",
+                "wind_speed",
+                "wind_gusts",
+                "precip_prob",
+                "temperature",
+            ):
+                if p.get(k) is not None and p.get(k) != "":
+                    value = p.get(k)
+                    break
 
             hazard_lower = str(hazard).lower()
             val_str = str(value).strip() if value is not None else ""
@@ -392,7 +634,7 @@ class NotificationService:
         Clearly specifies the leg type (Morning Outbound vs Evening Return) and specific risk factors.
         When AssessmentResult contains hazard_pinpoints or waypoint risks, formats concise and actionable mid-route alerts.
         """
-        resolved_leg = leg_type or getattr(assessment, "leg_type", None)
+        resolved_leg = leg_type or _safe_get(assessment, "leg_type")
         leg_label = None
         if resolved_leg:
             leg_lower = str(resolved_leg).lower()
@@ -403,7 +645,7 @@ class NotificationService:
             else:
                 leg_label = str(resolved_leg)
 
-        status_val = getattr(assessment.status, "value", str(assessment.status))
+        status_val = _extract_status(assessment, default="Caution")
         if leg_label:
             title = f"🏍️ Commute Check ({leg_label}): {status_val}"
         else:
@@ -420,22 +662,19 @@ class NotificationService:
             )
             return title, hazard_body
 
-        recommendation = getattr(assessment, "recommendation", None)
+        recommendation = _safe_get(assessment, "recommendation")
         if not recommendation:
-            if status_val == Status.GO.value or assessment.status == Status.GO:
+            if status_val == Status.GO.value:
                 recommendation = "Enjoy your ride!"
-            elif (
-                status_val == Status.CAUTION.value
-                or assessment.status == Status.CAUTION
-            ):
+            elif status_val == Status.CAUTION.value:
                 recommendation = "Ride with caution. Wear appropriate gear."
             else:
                 recommendation = "Riding not recommended."
 
         body = ""
         if leg_label:
-            loc_name = getattr(assessment, "location_name", None)
-            sched_time = getattr(assessment, "schedule_time", None)
+            loc_name = _safe_get(assessment, "location_name")
+            sched_time = _safe_get(assessment, "schedule_time")
             leg_header = f"Leg: {leg_label}"
             if loc_name:
                 leg_header += f" ({loc_name})"
@@ -444,17 +683,32 @@ class NotificationService:
             body += leg_header + "\n\n"
 
         body += recommendation + "\n\n"
-        body += f"Score: {assessment.score}/100\n"
+        score = _safe_get(assessment, "score", "overall_score")
+        if score is not None:
+            body += f"Score: {score}/100\n"
 
-        weather = getattr(assessment, "details", None) or getattr(
-            assessment, "weather", None
-        )
+        weather = _safe_get(assessment, "details", "weather")
         if weather:
-            body += f"Temp: {weather.temperature}°F, Wind: {weather.wind_speed} mph, Rain: {weather.precip_prob}%\n"
+            temp = _safe_get(weather, "temperature")
+            wind = _safe_get(weather, "wind_speed")
+            precip = _safe_get(weather, "precip_prob")
+            parts = []
+            if temp is not None:
+                parts.append(f"Temp: {temp}°F")
+            if wind is not None:
+                parts.append(f"Wind: {wind} mph")
+            if precip is not None:
+                parts.append(f"Rain: {precip}%")
+            if parts:
+                body += ", ".join(parts) + "\n"
 
-        if assessment.reasons:
-            reasons_str = "\n".join([f"• {r}" for r in assessment.reasons])
-            body += f"\nRisk Factors:\n{reasons_str}"
+        reasons = _safe_get(assessment, "reasons", default=[])
+        if reasons:
+            if isinstance(reasons, str):
+                reasons = [reasons]
+            reasons_str = "\n".join([f"• {r}" for r in reasons if r])
+            if reasons_str:
+                body += f"\nRisk Factors:\n{reasons_str}"
 
         return title, body
 
@@ -464,14 +718,22 @@ class NotificationService:
         reraise=True,
     )
     async def send_notification(
-        self, webhook_url: str, assessment: Any, leg_type: Optional[str] = None
+        self,
+        webhook_url: str,
+        assessment: Any,
+        leg_type: Optional[str] = None,
+        commute_name: Optional[str] = None,
     ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
         return await asyncio.to_thread(
-            self.send_notification_sync, webhook_url, assessment, leg_type=leg_type
+            self.send_notification_sync,
+            webhook_url,
+            assessment,
+            leg_type=leg_type,
+            commute_name=commute_name,
         )
 
     @retry(
@@ -480,7 +742,11 @@ class NotificationService:
         reraise=True,
     )
     def send_notification_sync(
-        self, webhook_url: str, assessment: Any, leg_type: Optional[str] = None
+        self,
+        webhook_url: str,
+        assessment: Any,
+        leg_type: Optional[str] = None,
+        commute_name: Optional[str] = None,
     ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
@@ -501,16 +767,18 @@ class NotificationService:
 
         apobj.add(webhook_url)
 
-        title, body = self._format_message(assessment, leg_type=leg_type)
+        title, body = self._format_message(
+            assessment, leg_type=leg_type, commute_name=commute_name
+        )
 
         # Map Status to Apprise notify type
-        status_val = getattr(assessment.status, "value", str(assessment.status))
+        status_val = _extract_status(assessment, default="Caution")
         notify_type = apprise.NotifyType.INFO
-        if status_val == Status.GO.value or assessment.status == Status.GO:
+        if status_val == Status.GO.value:
             notify_type = apprise.NotifyType.SUCCESS
-        elif status_val == Status.CAUTION.value or assessment.status == Status.CAUTION:
+        elif status_val == Status.CAUTION.value:
             notify_type = apprise.NotifyType.WARNING
-        elif status_val == Status.NO_GO.value or assessment.status == Status.NO_GO:
+        elif status_val == Status.NO_GO.value:
             notify_type = apprise.NotifyType.FAILURE
 
         success = apobj.notify(

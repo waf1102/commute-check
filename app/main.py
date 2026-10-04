@@ -91,12 +91,21 @@ async def _run_commute_check(commute_id: int, leg_type: str):
             leg_assessment = route_assessment.outbound_leg
 
         if commute and commute.name:
-            leg_assessment.commute_name = commute.name
+            if isinstance(leg_assessment, dict):
+                leg_assessment["commute_name"] = commute.name
+            else:
+                try:
+                    leg_assessment.commute_name = commute.name
+                except Exception:
+                    pass
 
         if commute.webhook_url:
             try:
                 await notification_service_instance.send_notification(
-                    commute.webhook_url, leg_assessment, leg_type=leg_type
+                    commute.webhook_url,
+                    leg_assessment,
+                    leg_type=leg_type,
+                    commute_name=commute.name if commute else None,
                 )
             except Exception:
                 print(f"Notification delivery failed for commute {commute_id}")

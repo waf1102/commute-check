@@ -142,5 +142,6 @@ def send_test_push(
         hazard_count=hazard_count,
         primary_hazard_location=primary_hazard_location,
         extra_data=extra_data if extra_data else None,
+        assessment=req.assessment if req else None,
     )
     return {"status": "sent", "delivered": res["delivered"], "failed": res["failed"]}
