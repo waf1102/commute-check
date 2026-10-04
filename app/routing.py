@@ -2,7 +2,7 @@ import logging
 import math
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple
 
 import httpx
 from pydantic import BaseModel, Field
@@ -48,7 +48,9 @@ def parse_coordinate(pt: Any) -> Tuple[float, float]:
             else (pt.get("lng") if "lng" in pt else pt.get("longitude"))
         )
         if lat is None or lon is None:
-            raise ValueError(f"Coordinate dict must contain lat/lon or latitude/longitude: {pt}")
+            raise ValueError(
+                f"Coordinate dict must contain lat/lon or latitude/longitude: {pt}"
+            )
         lat, lon = float(lat), float(lon)
     elif hasattr(pt, "lat") and hasattr(pt, "lon"):
         lat, lon = float(pt.lat), float(pt.lon)
@@ -65,7 +67,9 @@ def parse_coordinate(pt: Any) -> Tuple[float, float]:
     return lat, lon
 
 
-def sort_and_parse_waypoints(waypoints: Optional[List[Any]]) -> List[Tuple[float, float, str, int]]:
+def sort_and_parse_waypoints(
+    waypoints: Optional[List[Any]],
+) -> List[Tuple[float, float, str, int]]:
     """
     Parses waypoints and sorts them by order.
     Returns list of (lat, lon, name, order).
@@ -208,7 +212,9 @@ class RoutingService:
         self.timeout = timeout
         self.default_speed_kmh = default_speed_kmh
 
-    def calculate_distance(self, coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:
+    def calculate_distance(
+        self, coord1: Tuple[float, float], coord2: Tuple[float, float]
+    ) -> float:
         """
         Calculate distance between two (lat, lon) coordinates in kilometers.
         """
@@ -240,7 +246,9 @@ class RoutingService:
             return []
         durations = []
         for i in range(len(coordinates) - 1):
-            dur = self.calculate_segment_duration(coordinates[i], coordinates[i + 1], speed_kmh)
+            dur = self.calculate_segment_duration(
+                coordinates[i], coordinates[i + 1], speed_kmh
+            )
             durations.append(round(dur, 2))
         return durations
 
@@ -256,7 +264,12 @@ class RoutingService:
         """
         is_iso = "T" in departure_time
         has_seconds = (
-            len(departure_time.split(":") if not is_iso else departure_time.split("T")[1].split(":")) > 2
+            len(
+                departure_time.split(":")
+                if not is_iso
+                else departure_time.split("T")[1].split(":")
+            )
+            > 2
         )
 
         try:
@@ -317,7 +330,9 @@ class RoutingService:
         dest_coord = parse_coordinate(destination)
         sorted_wps = sort_and_parse_waypoints(waypoints)
 
-        all_points = [origin_coord] + [(wp[0], wp[1]) for wp in sorted_wps] + [dest_coord]
+        all_points = (
+            [origin_coord] + [(wp[0], wp[1]) for wp in sorted_wps] + [dest_coord]
+        )
 
         coords_str = ";".join(f"{lon},{lat}" for lat, lon in all_points)
         url = f"{self.base_url}/route/v1/driving/{coords_str}?overview=full&geometries=geojson"
@@ -344,7 +359,9 @@ class RoutingService:
                         )
                         for leg in legs_raw
                     ]
-                    leg_durations = [float(leg.get("duration", 0.0)) for leg in legs_raw]
+                    leg_durations = [
+                        float(leg.get("duration", 0.0)) for leg in legs_raw
+                    ]
 
                     return RouteDirectionsResponse(
                         geometry=geometry,
@@ -357,11 +374,15 @@ class RoutingService:
                 else:
                     logger.warning(f"OSRM returned non-Ok code: {data.get('code')}")
             else:
-                logger.warning(f"OSRM request failed with status code {response.status_code}")
+                logger.warning(
+                    f"OSRM request failed with status code {response.status_code}"
+                )
         except Exception as e:
             logger.warning(f"OSRM routing query failed or timed out: {e}")
 
-        return calculate_haversine_fallback(all_points, speed_kmh=self.FALLBACK_SPEED_KMH)
+        return calculate_haversine_fallback(
+            all_points, speed_kmh=self.FALLBACK_SPEED_KMH
+        )
 
 
 routing_service = RoutingService()

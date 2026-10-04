@@ -14,7 +14,10 @@ from app.models import Commute, Status, HourlyWeather, LegAssessment, UnitSystem
 from app.notifications import NotificationService
 
 TEST_DB_URL = "sqlite:///./test_scheduler.db"
-test_engine = create_engine(TEST_DB_URL, echo=False, connect_args={"check_same_thread": False})
+test_engine = create_engine(
+    TEST_DB_URL, echo=False, connect_args={"check_same_thread": False}
+)
+
 
 @pytest.fixture(autouse=True, scope="module")
 def cleanup_test_db():
@@ -33,7 +36,9 @@ def clean_scheduler():
     yield
     # Teardown: remove any test jobs
     for job in scheduler.get_jobs():
-        if job.id.startswith("commute_check_test_") or job.id.startswith("commute_check_999"):
+        if job.id.startswith("commute_check_test_") or job.id.startswith(
+            "commute_check_999"
+        ):
             scheduler.remove_job(job.id)
 
 
@@ -123,13 +128,17 @@ def test_schedule_commute_check_hybrid_schedule_registers_both_legs():
 
 def test_commute_days_of_week_validation_and_normalization():
     # Valid normalization cases
-    c1 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week=" Mon, Wed, Thu ")
+    c1 = Commute(
+        lat=0.0, lon=0.0, schedule_time="08:00", days_of_week=" Mon, Wed, Thu "
+    )
     assert c1.days_of_week == "mon,wed,thu"
 
     c2 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="MON-FRI")
     assert c2.days_of_week == "mon-fri"
 
-    c3 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="monday,wednesday,friday")
+    c3 = Commute(
+        lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="monday,wednesday,friday"
+    )
     assert c3.days_of_week == "mon,wed,fri"
 
     c4 = Commute(lat=0.0, lon=0.0, schedule_time="08:00", days_of_week="*")
@@ -208,7 +217,9 @@ def test_update_commute_reschedules_cleanly():
     schedule_commute_check(commute)
 
     assert scheduler.get_job("commute_check_9993_outbound") is not None
-    assert scheduler.get_job("commute_check_9993_return") is None, "Return job should be removed"
+    assert scheduler.get_job("commute_check_9993_return") is None, (
+        "Return job should be removed"
+    )
 
     clear_commute_jobs(9993)
 
@@ -309,44 +320,33 @@ async def test_run_commute_check_evaluates_outbound_and_return_legs():
         unit_system=UnitSystem.IMPERIAL,
     )
 
-    raw_origin = {
-        "hourly": {
-            "time": [f"2026-10-01T{h:02d}:00" for h in range(24)],
-            "temperature_2m": [70.0] * 24,
-            "apparent_temperature": [70.0] * 24,
-            "wind_speed_10m": [8.0] * 24,
-            "precipitation_probability": [0.0] * 24,
-            "weather_code": [0] * 24,
-        }
-    }
-    raw_dest = {
-        "hourly": {
-            "time": [f"2026-10-01T{h:02d}:00" for h in range(24)],
-            "temperature_2m": [40.0] * 24,  # Cold at destination
-            "apparent_temperature": [36.0] * 24,
-            "wind_speed_10m": [22.0] * 24,
-            "precipitation_probability": [40.0] * 24,
-            "weather_code": [0] * 24,
-        }
-    }
+    from tests.helpers import forecast
 
-    with patch("app.main.Session") as mock_session_cls, \
-         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_fetch, \
-         patch("app.main.notification_service_instance.send_notification", new_callable=AsyncMock) as mock_send_notif, \
-         patch("app.main.dispatch_web_push_notification") as mock_push:
-
+    raw_origin, raw_dest = forecast(), forecast(36, wind=22, gusts=25, rain=40)
+    with (
+        patch("app.main.Session") as mock_session_cls,
+        patch(
+            "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+        ) as mock_fetch,
+        patch(
+            "app.main.notification_service_instance.send_notification",
+            new_callable=AsyncMock,
+        ) as mock_send_notif,
+        patch("app.main.dispatch_web_push_notification") as mock_push,
+    ):
         mock_session = MagicMock()
         mock_session.get.return_value = commute
         mock_session_cls.return_value.__enter__.return_value = mock_session
-        mock_fetch.return_value = (raw_origin, raw_dest)
+        mock_fetch.return_value = [raw_origin, raw_dest]
 
         # 1. Test Outbound Leg
         outbound_result = await run_commute_check(9995, leg_type="outbound")
         assert outbound_result is not None
         assert outbound_result.leg_type == "outbound"
-        assert outbound_result.schedule_time == "08:00"
+        assert "T08:00:00" in outbound_result.schedule_time
         mock_fetch.assert_called_with(
-            commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
+            [(commute.lat, commute.lon), (commute.dest_lat, commute.dest_lon)],
+            commute.unit_system,
         )
         # Webhook received outbound leg assessment
         assert mock_send_notif.called
@@ -367,7 +367,7 @@ async def test_run_commute_check_evaluates_outbound_and_return_legs():
         return_result = await run_commute_check(9995, leg_type="return")
         assert return_result is not None
         assert return_result.leg_type == "return"
-        assert return_result.schedule_time == "17:00"
+        assert "T17:00:00" in return_result.schedule_time
 
         # Webhook received return leg assessment
         assert mock_send_notif.called
@@ -384,6 +384,7 @@ async def test_run_commute_check_evaluates_outbound_and_return_legs():
 @pytest.mark.asyncio
 async def test_run_commute_check_triggers_enhanced_hazard_notification():
     from app.models import LegAssessment, RouteAssessmentResult
+
     commute = Commute(
         id=9996,
         user_id=42,
@@ -433,12 +434,18 @@ async def test_run_commute_check_triggers_enhanced_hazard_notification():
         hazard_pinpoints=[hazard_pinpoint],
     )
 
-    with patch("app.main.Session") as mock_session_cls, \
-         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_fetch, \
-         patch("app.main.engine_instance.assess_route") as mock_assess_route, \
-         patch("app.main.notification_service_instance.send_notification", new_callable=AsyncMock) as mock_send_notif, \
-         patch("app.main.dispatch_web_push_notification") as mock_push:
-
+    with (
+        patch("app.main.Session") as mock_session_cls,
+        patch(
+            "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+        ) as mock_fetch,
+        patch("app.main.assess_commute", new_callable=AsyncMock) as mock_assess_route,
+        patch(
+            "app.main.notification_service_instance.send_notification",
+            new_callable=AsyncMock,
+        ) as mock_send_notif,
+        patch("app.main.dispatch_web_push_notification") as mock_push,
+    ):
         mock_session = MagicMock()
         mock_session.get.return_value = commute
         mock_session_cls.return_value.__enter__.return_value = mock_session
@@ -462,12 +469,14 @@ async def test_run_commute_check_triggers_enhanced_hazard_notification():
 
         assert push_user_id == 42
         assert "Caution" in push_title
-        assert "Commute Check: Caution for Morning Commute. ⚠️ High wind gusts (28 mph) near Summit Pass at ~08:25 AM." in push_body
+        assert (
+            "Commute Check: Caution for Morning Commute. ⚠️ High wind gusts (28 mph) near Summit Pass at ~08:25 AM."
+            in push_body
+        )
         assert push_kwargs["has_route_hazard"] is True
         assert push_kwargs["hazard_count"] == 1
         assert push_kwargs["primary_hazard_location"] == "Summit Pass"
-        assert push_kwargs["url"] == "/#route-visualizer"
-
+        assert push_kwargs["url"] == "/"
 
 
 @pytest.mark.asyncio
@@ -482,10 +491,16 @@ async def test_run_commute_check_error_handling():
         assert res is None
 
     # 2. Weather service error
-    with patch("app.main.Session") as mock_session_cls, \
-         patch("app.main.app_client.fetch_route_weather", new_callable=AsyncMock) as mock_fetch:
+    with (
+        patch("app.main.Session") as mock_session_cls,
+        patch(
+            "app.main.client_instance.fetch_weather_batch", new_callable=AsyncMock
+        ) as mock_fetch,
+    ):
         mock_session = MagicMock()
-        mock_session.get.return_value = Commute(id=9998, lat=0.0, lon=0.0, schedule_time="08:00")
+        mock_session.get.return_value = Commute(
+            id=9998, lat=0.0, lon=0.0, schedule_time="08:00"
+        )
         mock_session_cls.return_value.__enter__.return_value = mock_session
         mock_fetch.side_effect = RuntimeError("Open-Meteo network timeout")
 
@@ -502,13 +517,17 @@ def test_scheduler_api_crud_lifecycle():
 
     SQLModel.metadata.create_all(test_engine)
     with Session(test_engine) as session:
-        user = User(email="sched_api@example.com", hashed_password=get_password_hash("testpass"))
+        user = User(
+            email="sched_api@example.com", hashed_password=get_password_hash("testpass")
+        )
         session.add(user)
         session.commit()
         session.refresh(user)
 
         expire = datetime.now(timezone.utc) + timedelta(minutes=30)
-        token = jwt.encode({"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+        token = jwt.encode(
+            {"sub": user.email, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM
+        )
 
     prev_override = app.dependency_overrides.get(get_session)
     app.dependency_overrides[get_session] = lambda: Session(test_engine)
@@ -526,7 +545,7 @@ def test_scheduler_api_crud_lifecycle():
             "dest_lon": -73.9851,
             "schedule_time": "08:15",
             "return_schedule_time": "17:45",
-            "days_of_week": "mon-fri"
+            "days_of_week": "mon-fri",
         }
         res = client.post("/commutes", json=payload, headers=headers)
         assert res.status_code == 200
@@ -563,4 +582,3 @@ def test_scheduler_api_crud_lifecycle():
         else:
             app.dependency_overrides.pop(get_session, None)
         SQLModel.metadata.drop_all(test_engine)
-

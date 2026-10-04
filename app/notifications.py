@@ -1,16 +1,18 @@
+import asyncio
 import apprise
 import logging
 import json
 from typing import Dict, Any, List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
-from pywebpush import webpush, WebPushException
+from pywebpush import webpush
 from sqlmodel import Session, select
 
-from .models import Status, AssessmentResult, User
+from .models import Status, User
 from .push.models import PushSubscription
 from .push.vapid import get_or_create_vapid_keys
 
 logger = logging.getLogger(__name__)
+
 
 def dispatch_web_push_notification(
     user_id: int,
@@ -52,7 +54,11 @@ def dispatch_web_push_notification(
 
     private_key, _ = get_or_create_vapid_keys()
     user = session.get(User, user_id)
-    claims_sub = f"mailto:{user.email}" if user and user.email else "mailto:admin@commutecheck.com"
+    claims_sub = (
+        f"mailto:{user.email}"
+        if user and user.email
+        else "mailto:admin@commutecheck.com"
+    )
 
     payload_dict = {
         "title": title,
@@ -74,59 +80,42 @@ def dispatch_web_push_notification(
             webpush(
                 subscription_info={
                     "endpoint": sub.endpoint,
-                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                 },
                 data=payload,
                 vapid_private_key=private_key,
-                vapid_claims={"sub": claims_sub}
+                vapid_claims={"sub": claims_sub},
             )
             delivered += 1
-        except WebPushException as ex:
-            failed += 1
-            status_code = getattr(ex, "status_code", None)
-            if status_code is None and hasattr(ex, "response") and ex.response is not None:
-                status_code = getattr(ex.response, "status_code", getattr(ex.response, "status", None))
-
-            is_expired = status_code in (404, 410)
-            if not is_expired:
-                err_msg = str(ex).lower()
-                if "410" in err_msg and "gone" in err_msg:
-                    is_expired = True
-                elif "404" in err_msg and ("not found" in err_msg or "endpoint" in err_msg):
-                    is_expired = True
-
-            if is_expired:
-                logger.info(f"Pruning dead/expired push subscription id={sub.id}, endpoint={sub.endpoint}")
-                session.delete(sub)
-            else:
-                logger.warning(f"Failed to dispatch web push to subscription {sub.id}: {ex}")
         except Exception as ex:
             failed += 1
             status_code = getattr(ex, "status_code", None)
-            if status_code is None and hasattr(ex, "response") and ex.response is not None:
-                status_code = getattr(ex.response, "status_code", getattr(ex.response, "status", None))
-
-            is_expired = status_code in (404, 410)
-            if not is_expired:
-                err_msg = str(ex).lower()
-                if "410" in err_msg and "gone" in err_msg:
-                    is_expired = True
-                elif "404" in err_msg and ("not found" in err_msg or "endpoint" in err_msg):
-                    is_expired = True
-
-            if is_expired:
-                logger.info(f"Pruning dead/expired push subscription id={sub.id}, endpoint={sub.endpoint}")
+            response = getattr(ex, "response", None)
+            if status_code is None and response is not None:
+                status_code = getattr(
+                    response, "status_code", getattr(response, "status", None)
+                )
+            message = str(ex).lower()
+            expired = (
+                status_code in (404, 410)
+                or ("410" in message and "gone" in message)
+                or (
+                    "404" in message
+                    and ("not found" in message or "endpoint" in message)
+                )
+            )
+            if expired:
                 session.delete(sub)
             else:
-                logger.error(f"Unexpected error dispatching web push to subscription {sub.id}: {ex}")
+                logger.warning("Push delivery failed for subscription %s", sub.id)
 
     try:
         session.commit()
-    except Exception as e:
-        logger.error(f"Failed to commit push subscription changes: {e}")
+    except Exception:
         session.rollback()
-
+        logger.exception("Could not persist push subscription changes")
     return {"delivered": delivered, "failed": failed}
+
 
 class NotificationService:
     def __init__(self):
@@ -172,7 +161,12 @@ class NotificationService:
             status = p.get("status")
             if status is not None:
                 st_val = getattr(status, "value", str(status)).lower()
-                if st_val == "go" and not p.get("hazard") and not p.get("hazard_type") and not p.get("parameter"):
+                if (
+                    st_val == "go"
+                    and not p.get("hazard")
+                    and not p.get("hazard_type")
+                    and not p.get("parameter")
+                ):
                     continue
 
             standardized.append(p)
@@ -184,7 +178,7 @@ class NotificationService:
         assessment: Any,
         leg_type: Optional[str] = None,
         pinpoints: Optional[List[Dict[str, Any]]] = None,
-        commute_name: Optional[str] = None
+        commute_name: Optional[str] = None,
     ) -> str:
         """
         Formats concise and actionable mid-route hazard alerts.
@@ -265,28 +259,73 @@ class NotificationService:
 
             # Standardize hazard representation
             if "wind" in hazard_lower:
-                if val_str and "mph" not in val_str.lower() and "km/h" not in val_str.lower() and "kt" not in val_str.lower():
+                if (
+                    val_str
+                    and "mph" not in val_str.lower()
+                    and "km/h" not in val_str.lower()
+                    and "kt" not in val_str.lower()
+                ):
                     val_str = f"{val_str} mph"
                 if "gust" in hazard_lower:
                     base_h = "High wind gusts"
                 else:
-                    base_h = "High wind gusts" if not hazard or hazard_lower == "wind" else hazard
+                    base_h = (
+                        "High wind gusts"
+                        if not hazard or hazard_lower == "wind"
+                        else hazard
+                    )
                 if val_str and f"({val_str})" not in base_h and val_str not in base_h:
                     hazard_text = f"{base_h} ({val_str})"
                 else:
                     hazard_text = base_h
             elif "rain" in hazard_lower or "precip" in hazard_lower:
-                if val_str and "%" not in val_str and "mm" not in val_str.lower() and "in" not in val_str.lower():
+                if (
+                    val_str
+                    and "%" not in val_str
+                    and "mm" not in val_str.lower()
+                    and "in" not in val_str.lower()
+                ):
                     val_str = f"{val_str}%"
-                base_h = "Heavy rain" if (not hazard or hazard_lower in ("rain", "precipitation", "precip")) else hazard
+                base_h = (
+                    "Heavy rain"
+                    if (
+                        not hazard
+                        or hazard_lower in ("rain", "precipitation", "precip")
+                    )
+                    else hazard
+                )
                 if val_str and f"({val_str})" not in base_h and val_str not in base_h:
                     hazard_text = f"{base_h} ({val_str})"
                 else:
                     hazard_text = base_h
-            elif "temp" in hazard_lower or "cold" in hazard_lower or "freeze" in hazard_lower or "ice" in hazard_lower:
-                if val_str and "°" not in val_str and "f" not in val_str.lower() and "c" not in val_str.lower():
+            elif (
+                "temp" in hazard_lower
+                or "cold" in hazard_lower
+                or "freeze" in hazard_lower
+                or "ice" in hazard_lower
+            ):
+                if (
+                    val_str
+                    and "°" not in val_str
+                    and "f" not in val_str.lower()
+                    and "c" not in val_str.lower()
+                ):
                     val_str = f"{val_str}°F"
-                base_h = "Low temperature" if (not hazard or hazard_lower in ("temperature", "temp", "low temp", "low_temperature", "low temperature")) else hazard
+                base_h = (
+                    "Low temperature"
+                    if (
+                        not hazard
+                        or hazard_lower
+                        in (
+                            "temperature",
+                            "temp",
+                            "low temp",
+                            "low_temperature",
+                            "low temperature",
+                        )
+                    )
+                    else hazard
+                )
                 if val_str and f"({val_str})" not in base_h and val_str not in base_h:
                     hazard_text = f"{base_h} ({val_str})"
                 else:
@@ -304,7 +343,14 @@ class NotificationService:
             # Format location
             if location:
                 loc_clean = str(location).strip()
-                loc_str = loc_clean if (loc_clean.lower().startswith("near ") or loc_clean.lower().startswith("at ")) else f"near {loc_clean}"
+                loc_str = (
+                    loc_clean
+                    if (
+                        loc_clean.lower().startswith("near ")
+                        or loc_clean.lower().startswith("at ")
+                    )
+                    else f"near {loc_clean}"
+                )
             else:
                 loc_str = ""
 
@@ -339,7 +385,7 @@ class NotificationService:
         self,
         assessment: Any,
         leg_type: Optional[str] = None,
-        commute_name: Optional[str] = None
+        commute_name: Optional[str] = None,
     ) -> tuple[str, str]:
         """
         Formats the assessment result into a title and body.
@@ -366,14 +412,22 @@ class NotificationService:
         # If hazard pinpoints or waypoint risks are present, format concise mid-route alert body
         pinpoints = self.extract_hazard_pinpoints(assessment)
         if pinpoints:
-            hazard_body = self.format_hazard_alert(assessment, leg_type=leg_type, pinpoints=pinpoints, commute_name=commute_name)
+            hazard_body = self.format_hazard_alert(
+                assessment,
+                leg_type=leg_type,
+                pinpoints=pinpoints,
+                commute_name=commute_name,
+            )
             return title, hazard_body
 
         recommendation = getattr(assessment, "recommendation", None)
         if not recommendation:
             if status_val == Status.GO.value or assessment.status == Status.GO:
                 recommendation = "Enjoy your ride!"
-            elif status_val == Status.CAUTION.value or assessment.status == Status.CAUTION:
+            elif (
+                status_val == Status.CAUTION.value
+                or assessment.status == Status.CAUTION
+            ):
                 recommendation = "Ride with caution. Wear appropriate gear."
             else:
                 recommendation = "Riding not recommended."
@@ -392,7 +446,9 @@ class NotificationService:
         body += recommendation + "\n\n"
         body += f"Score: {assessment.score}/100\n"
 
-        weather = getattr(assessment, "details", None) or getattr(assessment, "weather", None)
+        weather = getattr(assessment, "details", None) or getattr(
+            assessment, "weather", None
+        )
         if weather:
             body += f"Temp: {weather.temperature}°F, Wind: {weather.wind_speed} mph, Rain: {weather.precip_prob}%\n"
 
@@ -402,42 +458,51 @@ class NotificationService:
 
         return title, body
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def send_notification(
-        self,
-        webhook_url: str,
-        assessment: Any,
-        leg_type: Optional[str] = None
+        self, webhook_url: str, assessment: Any, leg_type: Optional[str] = None
     ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
-        return self.send_notification_sync(webhook_url, assessment, leg_type=leg_type)
+        return await asyncio.to_thread(
+            self.send_notification_sync, webhook_url, assessment, leg_type=leg_type
+        )
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     def send_notification_sync(
-        self,
-        webhook_url: str,
-        assessment: Any,
-        leg_type: Optional[str] = None
+        self, webhook_url: str, assessment: Any, leg_type: Optional[str] = None
     ) -> bool:
         """
         Sends a notification via Apprise to the provided URL.
         Retries up to 3 times with exponential backoff.
         """
         apobj = apprise.Apprise()
-        
+
         # If it's a raw Discord/Slack URL, Apprise often needs the protocol prefix
         # but it can also handle some raw URLs if added correctly.
-        if not (webhook_url.startswith("http://") or webhook_url.startswith("https://")) and "://" not in webhook_url:
+        if (
+            not (
+                webhook_url.startswith("http://") or webhook_url.startswith("https://")
+            )
+            and "://" not in webhook_url
+        ):
             # If no protocol and not a standard URL, it might be an Apprise service ID
             pass
-            
+
         apobj.add(webhook_url)
-        
+
         title, body = self._format_message(assessment, leg_type=leg_type)
-        
+
         # Map Status to Apprise notify type
         status_val = getattr(assessment.status, "value", str(assessment.status))
         notify_type = apprise.NotifyType.INFO
@@ -447,18 +512,16 @@ class NotificationService:
             notify_type = apprise.NotifyType.WARNING
         elif status_val == Status.NO_GO.value or assessment.status == Status.NO_GO:
             notify_type = apprise.NotifyType.FAILURE
-            
+
         success = apobj.notify(
             body=body,
             title=title,
             notify_type=notify_type,
         )
-        
+
         if not success:
-            logger.error(f"Failed to send notification via Apprise to {webhook_url}")
+            logger.error("Failed to send notification via Apprise")
             if len(apobj) > 0:
-                raise Exception(f"Apprise failed to deliver notification to {webhook_url}")
-              
+                raise RuntimeError("Apprise failed to deliver notification")
+
         return success
-
-

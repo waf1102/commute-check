@@ -2,12 +2,14 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.models import UnitSystem
 
+
 class ThresholdsSchema(BaseModel):
     min_temp_caution: float
     min_temp_no_go: float
     max_wind_caution: float
     max_wind_no_go: float
     rain_threshold: float
+
 
 class HourlyForecastItem(BaseModel):
     time: str
@@ -16,6 +18,7 @@ class HourlyForecastItem(BaseModel):
     wind_speed: float
     precip_prob: float
     weather_code: int
+
 
 class ForecastResponse(BaseModel):
     unit_system: UnitSystem

@@ -6,7 +6,14 @@ from jose import jwt
 
 from app.main import app
 from app.database import get_session
-from app.models import User, Commute, AssessmentHistory, AssessmentResult, Status, HourlyWeather
+from app.models import (
+    User,
+    Commute,
+    AssessmentHistory,
+    AssessmentResult,
+    Status,
+    HourlyWeather,
+)
 from app.security import ALGORITHM, SECRET_KEY, get_password_hash
 from app.analytics.service import record_assessment_run, get_daily_commute_stats
 
@@ -20,6 +27,7 @@ def cleanup_test_db():
     yield
     engine.dispose()
     import os
+
     if os.path.exists("./test_integration_analytics.db"):
         try:
             os.remove("./test_integration_analytics.db")
@@ -54,7 +62,7 @@ def make_user(session: Session, email: str = "rider@example.com") -> User:
 def auth_headers(user: User) -> dict:
     payload = {
         "sub": user.email,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=2)
+        "exp": datetime.now(timezone.utc) + timedelta(hours=2),
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     return {"Authorization": f"Bearer {token}"}
@@ -65,7 +73,13 @@ class TestIntegrationAssessmentRunRecording:
 
     def test_record_assessment_run_persists_in_db(self, session: Session):
         user = make_user(session, "runner@example.com")
-        commute = Commute(name="Home to Office", lat=37.77, lon=-122.41, schedule_time="08:00", user_id=user.id)
+        commute = Commute(
+            name="Home to Office",
+            lat=37.77,
+            lon=-122.41,
+            schedule_time="08:00",
+            user_id=user.id,
+        )
         session.add(commute)
         session.commit()
         session.refresh(commute)
@@ -76,14 +90,14 @@ class TestIntegrationAssessmentRunRecording:
             wind_speed=7.5,
             wind_gusts=10.0,
             precip_prob=5.0,
-            weather_code=0
+            weather_code=0,
         )
         assessment = AssessmentResult(
             status=Status.GO,
             score=92,
             reasons=["Clear skies", "Pleasant temperature"],
             recommendation="Enjoy your commute!",
-            details=weather
+            details=weather,
         )
 
         history = record_assessment_run(
@@ -115,7 +129,9 @@ class TestIntegrationAssessmentRunRecording:
 class TestIntegrationDecisionRecording:
     """Tests ride/drive decision recording contract and matching."""
 
-    def test_record_decision_updates_todays_unassigned_assessment(self, client: TestClient, session: Session):
+    def test_record_decision_updates_todays_unassigned_assessment(
+        self, client: TestClient, session: Session
+    ):
         user = make_user(session, "decision1@example.com")
         headers = auth_headers(user)
 
@@ -127,12 +143,16 @@ class TestIntegrationDecisionRecording:
             overall_score=68.0,
             commute_distance_km=22.0,
             duration_minutes=40.0,
-            timestamp=datetime.now(timezone.utc) - timedelta(hours=2)
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
         )
         assert history.commute_type is None
 
         # User submits 'riding' decision from History page
-        resp = client.post("/api/analytics/record-decision", json={"decision": "riding"}, headers=headers)
+        resp = client.post(
+            "/api/analytics/record-decision",
+            json={"decision": "riding"},
+            headers=headers,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["id"] == history.id
@@ -143,15 +163,21 @@ class TestIntegrationDecisionRecording:
         session.refresh(history)
         assert history.commute_type == "riding"
 
-    def test_record_decision_creates_fresh_entry_when_no_unassigned_exists(self, client: TestClient, session: Session):
+    def test_record_decision_creates_fresh_entry_when_no_unassigned_exists(
+        self, client: TestClient, session: Session
+    ):
         user = make_user(session, "fresh@example.com")
         headers = auth_headers(user)
 
         # No existing assessment run today; user logs 'driving'
         resp = client.post(
             "/api/analytics/record-decision",
-            json={"decision": "driving", "commute_distance_km": 14.0, "duration_minutes": 30.0},
-            headers=headers
+            json={
+                "decision": "driving",
+                "commute_distance_km": 14.0,
+                "duration_minutes": 30.0,
+            },
+            headers=headers,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -161,11 +187,15 @@ class TestIntegrationDecisionRecording:
         assert data["user_id"] == user.id
 
         # Verify DB has new record
-        records = session.exec(select(AssessmentHistory).where(AssessmentHistory.user_id == user.id)).all()
+        records = session.exec(
+            select(AssessmentHistory).where(AssessmentHistory.user_id == user.id)
+        ).all()
         assert len(records) == 1
         assert records[0].commute_type == "driving"
 
-    def test_record_decision_direct_update_by_assessment_history_id(self, client: TestClient, session: Session):
+    def test_record_decision_direct_update_by_assessment_history_id(
+        self, client: TestClient, session: Session
+    ):
         user = make_user(session, "direct_id@example.com")
         headers = auth_headers(user)
 
@@ -175,13 +205,17 @@ class TestIntegrationDecisionRecording:
             user_id=user.id,
             timestamp=past_time,
             overall_status="Go",
-            overall_score=85.0
+            overall_score=85.0,
         )
 
         resp = client.post(
             "/api/analytics/record-decision",
-            json={"assessment_history_id": history.id, "decision": "riding", "commute_distance_km": 16.0},
-            headers=headers
+            json={
+                "assessment_history_id": history.id,
+                "decision": "riding",
+                "commute_distance_km": 16.0,
+            },
+            headers=headers,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -189,17 +223,27 @@ class TestIntegrationDecisionRecording:
         assert data["commute_type"] == "riding"
         assert data["commute_distance_km"] == 16.0
 
-    def test_decision_aliases_and_normalization(self, client: TestClient, session: Session):
+    def test_decision_aliases_and_normalization(
+        self, client: TestClient, session: Session
+    ):
         user = make_user(session, "aliases@example.com")
         headers = auth_headers(user)
 
         for alias in ["rode", "bike", "bicycle", "motorcycle"]:
-            resp = client.post("/api/analytics/record-decision", json={"decision": alias}, headers=headers)
+            resp = client.post(
+                "/api/analytics/record-decision",
+                json={"decision": alias},
+                headers=headers,
+            )
             assert resp.status_code == 200
             assert resp.json()["commute_type"] == "riding"
 
         for alias in ["drive", "drove", "car"]:
-            resp = client.post("/api/analytics/record-decision", json={"decision": alias}, headers=headers)
+            resp = client.post(
+                "/api/analytics/record-decision",
+                json={"decision": alias},
+                headers=headers,
+            )
             assert resp.status_code == 200
             assert resp.json()["commute_type"] == "driving"
 
@@ -207,29 +251,34 @@ class TestIntegrationDecisionRecording:
         user = make_user(session, "invalid_dec@example.com")
         headers = auth_headers(user)
 
-        resp = client.post("/api/analytics/record-decision", json={"decision": "helicopter"}, headers=headers)
+        resp = client.post(
+            "/api/analytics/record-decision",
+            json={"decision": "helicopter"},
+            headers=headers,
+        )
         assert resp.status_code == 400
         assert "Invalid decision" in resp.json()["detail"]
 
-        resp_empty = client.post("/api/analytics/record-decision", json={}, headers=headers)
+        resp_empty = client.post(
+            "/api/analytics/record-decision", json={}, headers=headers
+        )
         assert resp_empty.status_code == 422
 
-    def test_idor_protection_on_decision_recording(self, client: TestClient, session: Session):
+    def test_idor_protection_on_decision_recording(
+        self, client: TestClient, session: Session
+    ):
         victim = make_user(session, "victim@example.com")
         attacker = make_user(session, "attacker@example.com")
         attacker_headers = auth_headers(attacker)
 
         victim_history = record_assessment_run(
-            session=session,
-            user_id=victim.id,
-            overall_status="Go",
-            overall_score=90.0
+            session=session, user_id=victim.id, overall_status="Go", overall_score=90.0
         )
 
         resp = client.post(
             "/api/analytics/record-decision",
             json={"assessment_history_id": victim_history.id, "decision": "driving"},
-            headers=attacker_headers
+            headers=attacker_headers,
         )
         assert resp.status_code == 403
         assert "Not authorized" in resp.json()["detail"]
@@ -238,7 +287,9 @@ class TestIntegrationDecisionRecording:
 class TestIntegrationTimezoneHandling:
     """Tests date and timezone normalization across day boundaries."""
 
-    def test_evening_assessment_across_utc_midnight_matches_decision(self, client: TestClient, session: Session):
+    def test_evening_assessment_across_utc_midnight_matches_decision(
+        self, client: TestClient, session: Session
+    ):
         """
         Simulate user in EDT (UTC-4).
         At 23:30 local EDT on Oct 3, UTC time is 03:30 Oct 4.
@@ -258,7 +309,7 @@ class TestIntegrationTimezoneHandling:
             timestamp=evening_utc,
             overall_status="Caution",
             overall_score=70.0,
-            commute_distance_km=20.0
+            commute_distance_km=20.0,
         )
 
         # Log decision with date="2026-10-03" and EDT timestamp
@@ -267,16 +318,18 @@ class TestIntegrationTimezoneHandling:
             json={
                 "decision": "riding",
                 "date": "2026-10-03",
-                "timestamp": evening_local.isoformat()
+                "timestamp": evening_local.isoformat(),
             },
-            headers=headers
+            headers=headers,
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["id"] == history.id
         assert data["commute_type"] == "riding"
 
-    def test_different_day_assessment_not_matched_for_today(self, client: TestClient, session: Session):
+    def test_different_day_assessment_not_matched_for_today(
+        self, client: TestClient, session: Session
+    ):
         """Assessments from 3 days ago should not be matched when logging today."""
         user = make_user(session, "tz_different_day@example.com")
         headers = auth_headers(user)
@@ -287,10 +340,14 @@ class TestIntegrationTimezoneHandling:
             user_id=user.id,
             timestamp=three_days_ago,
             overall_status="No-Go",
-            overall_score=35.0
+            overall_score=35.0,
         )
 
-        resp = client.post("/api/analytics/record-decision", json={"decision": "driving"}, headers=headers)
+        resp = client.post(
+            "/api/analytics/record-decision",
+            json={"decision": "driving"},
+            headers=headers,
+        )
         assert resp.status_code == 200
         data = resp.json()
         # Created a new record, did not overwrite old assessment from 3 days ago
@@ -302,7 +359,9 @@ class TestIntegrationTimezoneHandling:
 class TestIntegrationDailyCommuteStats:
     """Tests GET /api/analytics/commute-stats/daily contract, query params, and calculations."""
 
-    def test_get_daily_stats_without_user_id_query_param(self, client: TestClient, session: Session):
+    def test_get_daily_stats_without_user_id_query_param(
+        self, client: TestClient, session: Session
+    ):
         """Tests that user_id is optional and defaults to authenticated user."""
         user = make_user(session, "no_param@example.com")
         headers = auth_headers(user)
@@ -315,14 +374,17 @@ class TestIntegrationDailyCommuteStats:
             commute_type="riding",
             commute_distance_km=15.0,
             duration_minutes=30.0,
-            overall_score=85.0
+            overall_score=85.0,
         )
 
         start_date = today.date().strftime("%Y-%m-%d")
         end_date = today.date().strftime("%Y-%m-%d")
 
         # Call WITHOUT user_id query param
-        resp = client.get(f"/api/analytics/commute-stats/daily?start_date={start_date}&end_date={end_date}", headers=headers)
+        resp = client.get(
+            f"/api/analytics/commute-stats/daily?start_date={start_date}&end_date={end_date}",
+            headers=headers,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -332,7 +394,9 @@ class TestIntegrationDailyCommuteStats:
         assert data[0]["avg_score"] == 85.0
         assert data[0]["total_distance_km"] == 15.0
 
-    def test_get_daily_stats_with_empty_user_id_query_param(self, client: TestClient, session: Session):
+    def test_get_daily_stats_with_empty_user_id_query_param(
+        self, client: TestClient, session: Session
+    ):
         """Tests that ?user_id= (empty string from frontend unpopulated store) does not cause 422."""
         user = make_user(session, "empty_param@example.com")
         headers = auth_headers(user)
@@ -345,14 +409,17 @@ class TestIntegrationDailyCommuteStats:
             commute_type="driving",
             commute_distance_km=25.0,
             duration_minutes=45.0,
-            overall_score=78.0
+            overall_score=78.0,
         )
 
         start_date = today.date().strftime("%Y-%m-%d")
         end_date = today.date().strftime("%Y-%m-%d")
 
         # Call with user_id= (empty)
-        resp = client.get(f"/api/analytics/commute-stats/daily?user_id=&start_date={start_date}&end_date={end_date}", headers=headers)
+        resp = client.get(
+            f"/api/analytics/commute-stats/daily?user_id=&start_date={start_date}&end_date={end_date}",
+            headers=headers,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -360,7 +427,9 @@ class TestIntegrationDailyCommuteStats:
         assert data[0]["days_ridden"] == 0
         assert data[0]["total_distance_km"] == 25.0
 
-    def test_get_daily_stats_idor_protection(self, client: TestClient, session: Session):
+    def test_get_daily_stats_idor_protection(
+        self, client: TestClient, session: Session
+    ):
         user = make_user(session, "main_user@example.com")
         other = make_user(session, "other_user@example.com")
         headers = auth_headers(user)
@@ -368,22 +437,32 @@ class TestIntegrationDailyCommuteStats:
         start_date = date.today().strftime("%Y-%m-%d")
         end_date = date.today().strftime("%Y-%m-%d")
 
-        resp = client.get(f"/api/analytics/commute-stats/daily?user_id={other.id}&start_date={start_date}&end_date={end_date}", headers=headers)
+        resp = client.get(
+            f"/api/analytics/commute-stats/daily?user_id={other.id}&start_date={start_date}&end_date={end_date}",
+            headers=headers,
+        )
         assert resp.status_code == 403
         assert "Not authorized" in resp.json()["detail"]
 
-    def test_empty_date_range_and_zero_decision_days_no_500_error(self, client: TestClient, session: Session):
+    def test_empty_date_range_and_zero_decision_days_no_500_error(
+        self, client: TestClient, session: Session
+    ):
         """Ensures empty ranges or days without decisions return empty list or defaults without 500."""
         user = make_user(session, "empty_stats@example.com")
         headers = auth_headers(user)
 
         # Empty range (start > end)
-        resp1 = client.get("/api/analytics/commute-stats/daily?start_date=2026-10-10&end_date=2026-10-01", headers=headers)
-        assert resp1.status_code == 200
-        assert resp1.json() == []
+        resp1 = client.get(
+            "/api/analytics/commute-stats/daily?start_date=2026-10-10&end_date=2026-10-01",
+            headers=headers,
+        )
+        assert resp1.status_code == 422
 
         # Date range where user has no records
-        resp2 = client.get("/api/analytics/commute-stats/daily?start_date=2020-01-01&end_date=2020-01-07", headers=headers)
+        resp2 = client.get(
+            "/api/analytics/commute-stats/daily?start_date=2020-01-01&end_date=2020-01-07",
+            headers=headers,
+        )
         assert resp2.status_code == 200
         assert resp2.json() == []
 
@@ -394,9 +473,12 @@ class TestIntegrationDailyCommuteStats:
             user_id=user.id,
             timestamp=target_day,
             commute_type=None,
-            overall_score=95.0
+            overall_score=95.0,
         )
-        resp3 = client.get("/api/analytics/commute-stats/daily?start_date=2026-05-15&end_date=2026-05-15", headers=headers)
+        resp3 = client.get(
+            "/api/analytics/commute-stats/daily?start_date=2026-05-15&end_date=2026-05-15",
+            headers=headers,
+        )
         assert resp3.status_code == 200
         data3 = resp3.json()
         assert len(data3) == 1
@@ -405,10 +487,12 @@ class TestIntegrationDailyCommuteStats:
         assert data3[0]["days_total"] == 0
         assert data3[0]["avg_score"] == 95.0
         assert data3[0]["total_distance_km"] == 0.0
-        assert data3[0]["time_saved_minutes"] == 0.0
-        assert data3[0]["fuel_saved_gallons"] == 0.0
+        assert "time_saved_minutes" not in data3[0]
+        assert "fuel_saved_gallons" not in data3[0]
 
-    def test_daily_stats_aggregation_and_savings_calculations(self, client: TestClient, session: Session):
+    def test_daily_stats_aggregation_and_savings_calculations(
+        self, client: TestClient, session: Session
+    ):
         """
         Validates calculation of days_ridden, days_driven, total_distance_km,
         time_saved_minutes, and fuel_saved_gallons.
@@ -426,7 +510,7 @@ class TestIntegrationDailyCommuteStats:
             commute_type="riding",
             commute_distance_km=20.0,
             duration_minutes=40.0,
-            overall_score=80.0
+            overall_score=80.0,
         )
 
         # Commute 2: Driving 30 km in 50 minutes, score 60
@@ -437,10 +521,13 @@ class TestIntegrationDailyCommuteStats:
             commute_type="driving",
             commute_distance_km=30.0,
             duration_minutes=50.0,
-            overall_score=60.0
+            overall_score=60.0,
         )
 
-        resp = client.get("/api/analytics/commute-stats/daily?start_date=2026-09-20&end_date=2026-09-20", headers=headers)
+        resp = client.get(
+            "/api/analytics/commute-stats/daily?start_date=2026-09-20&end_date=2026-09-20",
+            headers=headers,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -452,9 +539,6 @@ class TestIntegrationDailyCommuteStats:
         assert stats["avg_score"] == 70.0  # (80 + 60) / 2
         assert stats["total_distance_km"] == 50.0  # 20 + 30
 
-        # Riding time saved: 20% of 40 mins = 8.0 mins
-        assert stats["time_saved_minutes"] == 8.0
-
-        # Fuel saved: (20 km * 0.621371) / 25 mpg == 0.50 gallons
-        expected_fuel = round((20.0 * 0.621371) / 25.0, 2)
-        assert stats["fuel_saved_gallons"] == expected_fuel
+        # Weather and distance cannot establish fuel consumption or time saved.
+        assert "time_saved_minutes" not in stats
+        assert "fuel_saved_gallons" not in stats

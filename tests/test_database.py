@@ -1,5 +1,11 @@
 from sqlmodel import SQLModel, create_engine, Session
-from app.models import Commute, LegAssessment, RouteAssessmentResult, Status, HourlyWeather
+from app.models import (
+    Commute,
+    LegAssessment,
+    RouteAssessmentResult,
+    Status,
+    HourlyWeather,
+)
 from app import database
 import pytest
 
@@ -7,7 +13,7 @@ import pytest
 def test_create_db_and_tables():
     # This is an in-memory SQLite database for testing
     test_engine = create_engine("sqlite:///:memory:")
-    
+
     # We need to create a new engine for testing, not use the global one
     original_engine = database.engine
     database.engine = test_engine
@@ -18,6 +24,7 @@ def test_create_db_and_tables():
 
         # Check that the table was created
         from sqlalchemy import inspect
+
         inspector = inspect(test_engine)
         assert "commute" in inspector.get_table_names()
     finally:

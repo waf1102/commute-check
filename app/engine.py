@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple, Union, Dict
+from typing import Optional, List, Tuple, Union
 from .models import (
     Status,
     HourlyWeather,
@@ -25,7 +25,9 @@ def _worst_status(status1: Status, status2: Optional[Status] = None) -> Status:
     return status1 if STATUS_SEVERITY[status1] >= STATUS_SEVERITY[status2] else status2
 
 
-def _combine_reasons(reasons1: List[str], reasons2: Optional[List[str]] = None) -> List[str]:
+def _combine_reasons(
+    reasons1: List[str], reasons2: Optional[List[str]] = None
+) -> List[str]:
     combined = list(reasons1)
     if reasons2:
         combined.extend(reasons2)
@@ -84,7 +86,7 @@ class AssessmentEngine:
             )
 
         # 2. Wind Speed & Gusts Check
-        if weather.wind_speed > thresholds.max_wind_no_go:
+        if max(weather.wind_speed, weather.wind_gusts) > thresholds.max_wind_no_go:
             pinpoints.append(
                 HazardPinpoint(
                     lat=lat,
@@ -97,7 +99,7 @@ class AssessmentEngine:
                     severity=Status.NO_GO,
                 )
             )
-        elif weather.wind_speed > thresholds.max_wind_caution:
+        elif max(weather.wind_speed, weather.wind_gusts) > thresholds.max_wind_caution:
             pinpoints.append(
                 HazardPinpoint(
                     lat=lat,
@@ -154,7 +156,7 @@ class AssessmentEngine:
             )
 
         # 4. Dangerous Weather Code
-        if weather.weather_code >= 71:
+        if weather.weather_code in {56, 57, 66, 67, 71, 73, 75, 77, 85, 86, 95, 96, 99}:
             pinpoints.append(
                 HazardPinpoint(
                     lat=lat,
@@ -208,7 +210,7 @@ class AssessmentEngine:
             reasons.append("Low temperature")
 
         # 2. Wind Check
-        if weather.wind_speed > thresholds.max_wind_no_go:
+        if max(weather.wind_speed, weather.wind_gusts) > thresholds.max_wind_no_go:
             wp_eval = WaypointEvaluation(
                 index=0,
                 name=thresholds.name or "Origin",
@@ -231,7 +233,7 @@ class AssessmentEngine:
                 waypoint_evaluations=[wp_eval],
                 hazard_pinpoints=hazards,
             )
-        if weather.wind_speed > thresholds.max_wind_caution:
+        if max(weather.wind_speed, weather.wind_gusts) > thresholds.max_wind_caution:
             score -= 40
             reasons.append("High wind/gusts")
 
@@ -265,7 +267,7 @@ class AssessmentEngine:
 
         # 4. Dangerous Weather Codes (WMO)
         # 71+ is snow, 95+ is thunderstorm
-        if weather.weather_code >= 71:
+        if weather.weather_code in {56, 57, 66, 67, 71, 73, 75, 77, 85, 86, 95, 96, 99}:
             wp_eval = WaypointEvaluation(
                 index=0,
                 name=thresholds.name or "Origin",
@@ -370,15 +372,23 @@ class AssessmentEngine:
         if not coordinates:
             raise ValueError("coordinates cannot be empty")
 
-        thresholds = commute if commute is not None else Commute(
-            lat=coordinates[0][0],
-            lon=coordinates[0][1],
-            schedule_time=departure_time,
+        if not coordinates or not weather_data or len(weather_data) != len(coordinates):
+            raise ValueError("A complete forecast is required for every route location")
+        thresholds = (
+            commute
+            if commute is not None
+            else Commute(
+                lat=coordinates[0][0],
+                lon=coordinates[0][1],
+                schedule_time=departure_time,
+            )
         )
 
         # 1. Compute segment durations and ETAs
         if segment_durations is None:
-            segment_durations = self.routing_service.compute_segment_durations(coordinates, speed_kmh=speed_kmh)
+            segment_durations = self.routing_service.compute_segment_durations(
+                coordinates, speed_kmh=speed_kmh
+            )
         else:
             segment_durations = list(segment_durations)
 
@@ -399,18 +409,15 @@ class AssessmentEngine:
                 else:
                     sample_weather = parse_hourly_at_time(item, target_time=eta)
             else:
-                sample_weather = HourlyWeather(
-                    temperature=70.0,
-                    apparent_temp=70.0,
-                    wind_speed=5.0,
-                    wind_gusts=5.0,
-                    precip_prob=0.0,
-                    weather_code=0,
-                )
+                raise ValueError("Forecast missing for a route location")
 
-            wp_thresh = thresholds.model_copy(update={"lat": coord[0], "lon": coord[1], "schedule_time": eta})
+            wp_thresh = thresholds.model_copy(
+                update={"lat": coord[0], "lon": coord[1], "schedule_time": eta}
+            )
             wp_eval_res = self.assess(sample_weather, wp_thresh)
-            wp_hazards = self.detect_hazard_pinpoints(sample_weather, thresholds, coord, eta)
+            wp_hazards = self.detect_hazard_pinpoints(
+                sample_weather, thresholds, coord, eta
+            )
 
             wp_name = (
                 waypoint_names[i]
@@ -438,6 +445,9 @@ class AssessmentEngine:
                 reasons=wp_eval_res.reasons,
                 hazard_pinpoints=wp_hazards,
             )
+            for hazard in wp_hazards:
+                hazard.location = wp_name
+                hazard.location_name = wp_name
             waypoint_evaluations.append(wp_eval)
             for h in wp_hazards:
                 if h not in all_hazards:
@@ -458,9 +468,13 @@ class AssessmentEngine:
                 if h not in seg_hazards:
                     seg_hazards.append(h)
 
-            seg_dist = self.routing_service.calculate_distance(coordinates[i], coordinates[i + 1])
+            seg_dist = self.routing_service.calculate_distance(
+                coordinates[i], coordinates[i + 1]
+            )
             dur = segment_durations[i] if i < len(segment_durations) else 0.0
-            seg_weather = wp_end.weather if wp_end.score < wp_start.score else wp_start.weather
+            seg_weather = (
+                wp_end.weather if wp_end.score < wp_start.score else wp_start.weather
+            )
 
             seg = RouteSegment(
                 segment_index=i,
@@ -502,14 +516,21 @@ class AssessmentEngine:
             recommendation = "Riding not recommended."
 
         origin_name = waypoint_evaluations[0].name if waypoint_evaluations else "Origin"
-        dest_name = waypoint_evaluations[-1].name if len(waypoint_evaluations) > 1 else None
+        dest_name = (
+            waypoint_evaluations[-1].name if len(waypoint_evaluations) > 1 else None
+        )
         location_name = f"{origin_name} -> {dest_name}" if dest_name else origin_name
 
         worst_weather = (
             min(waypoint_evaluations, key=lambda w: w.score).weather
             if waypoint_evaluations
             else HourlyWeather(
-                temperature=70, apparent_temp=70, wind_speed=0, wind_gusts=0, precip_prob=0, weather_code=0
+                temperature=70,
+                apparent_temp=70,
+                wind_speed=0,
+                wind_gusts=0,
+                precip_prob=0,
+                weather_code=0,
             )
         )
 
@@ -560,7 +581,9 @@ class AssessmentEngine:
         waypoint_names: Optional[List[str]] = None,
     ) -> RouteAssessmentResult:
         # If multi-waypoint parameters provided, delegate to assess_timed_route
-        if waypoints is not None or (weather_data is not None and len(weather_data) > 2):
+        if waypoints is not None or (
+            weather_data is not None and len(weather_data) > 2
+        ):
             coords = waypoints or []
             dep_time = departure_time or (commute.schedule_time if commute else "08:00")
             return self.assess_timed_route(
@@ -573,16 +596,28 @@ class AssessmentEngine:
                 waypoint_names=waypoint_names,
             )
 
-        thresholds = commute if commute is not None else Commute(lat=0.0, lon=0.0, schedule_time="08:00")
-        outbound_time = commute.schedule_time if commute and commute.schedule_time else "08:00"
+        thresholds = (
+            commute
+            if commute is not None
+            else Commute(lat=0.0, lon=0.0, schedule_time="08:00")
+        )
+        outbound_time = (
+            commute.schedule_time if commute and commute.schedule_time else "08:00"
+        )
 
         # 1. Outbound leg evaluation
-        outbound_eval = self._assess_single_or_dual_weather(origin_outbound_weather, dest_outbound_weather, thresholds)
-        outbound_status, outbound_score, outbound_reasons, outbound_weather = outbound_eval
+        outbound_eval = self._assess_single_or_dual_weather(
+            origin_outbound_weather, dest_outbound_weather, thresholds
+        )
+        outbound_status, outbound_score, outbound_reasons, outbound_weather = (
+            outbound_eval
+        )
 
         origin_name = commute.name if commute and commute.name else "Origin"
         dest_name = commute.dest_name if commute and commute.dest_name else None
-        outbound_location = f"{origin_name} -> {dest_name}" if dest_name else origin_name
+        outbound_location = (
+            f"{origin_name} -> {dest_name}" if dest_name else origin_name
+        )
 
         # Construct waypoint evaluations and segments for outbound leg
         outbound_waypoints: List[WaypointEvaluation] = []
@@ -591,7 +626,10 @@ class AssessmentEngine:
 
         if origin_outbound_weather:
             origin_hazards = self.detect_hazard_pinpoints(
-                origin_outbound_weather, thresholds, (thresholds.lat, thresholds.lon), outbound_time
+                origin_outbound_weather,
+                thresholds,
+                (thresholds.lat, thresholds.lon),
+                outbound_time,
             )
             outbound_hazards.extend(origin_hazards)
             res = self.assess(origin_outbound_weather, thresholds)
@@ -610,22 +648,35 @@ class AssessmentEngine:
                 )
             )
 
-        if dest_outbound_weather and thresholds.dest_lat is not None and thresholds.dest_lon is not None:
+        if (
+            dest_outbound_weather
+            and thresholds.dest_lat is not None
+            and thresholds.dest_lon is not None
+        ):
             # Estimate destination ETA based on distance and default speed
             dist = self.routing_service.calculate_distance(
-                (thresholds.lat, thresholds.lon), (thresholds.dest_lat, thresholds.dest_lon)
+                (thresholds.lat, thresholds.lon),
+                (thresholds.dest_lat, thresholds.dest_lon),
             )
             dur = self.routing_service.calculate_segment_duration(
-                (thresholds.lat, thresholds.lon), (thresholds.dest_lat, thresholds.dest_lon)
+                (thresholds.lat, thresholds.lon),
+                (thresholds.dest_lat, thresholds.dest_lon),
             )
             etas = self.routing_service.compute_etas(outbound_time, [dur])
             dest_eta = etas[1] if len(etas) > 1 else outbound_time
 
             dest_thresh = thresholds.model_copy(
-                update={"lat": thresholds.dest_lat, "lon": thresholds.dest_lon, "schedule_time": dest_eta}
+                update={
+                    "lat": thresholds.dest_lat,
+                    "lon": thresholds.dest_lon,
+                    "schedule_time": dest_eta,
+                }
             )
             dest_hazards = self.detect_hazard_pinpoints(
-                dest_outbound_weather, dest_thresh, (thresholds.dest_lat, thresholds.dest_lon), dest_eta
+                dest_outbound_weather,
+                dest_thresh,
+                (thresholds.dest_lat, thresholds.dest_lon),
+                dest_eta,
             )
             for h in dest_hazards:
                 if h not in outbound_hazards:
@@ -648,8 +699,14 @@ class AssessmentEngine:
 
             seg_status = _worst_status(outbound_waypoints[0].status, dest_wp.status)
             seg_score = min(outbound_waypoints[0].score, dest_wp.score)
-            seg_reasons = _combine_reasons(outbound_waypoints[0].reasons, dest_wp.reasons)
-            seg_weather = dest_wp.weather if dest_wp.score < outbound_waypoints[0].score else outbound_waypoints[0].weather
+            seg_reasons = _combine_reasons(
+                outbound_waypoints[0].reasons, dest_wp.reasons
+            )
+            seg_weather = (
+                dest_wp.weather
+                if dest_wp.score < outbound_waypoints[0].score
+                else outbound_waypoints[0].weather
+            )
 
             outbound_segments.append(
                 RouteSegment(
@@ -691,22 +748,40 @@ class AssessmentEngine:
         all_waypoints = list(outbound_waypoints)
         all_hazards = list(outbound_hazards)
 
-        return_eval = self._assess_single_or_dual_weather(dest_return_weather, origin_return_weather, thresholds)
+        return_eval = self._assess_single_or_dual_weather(
+            dest_return_weather, origin_return_weather, thresholds
+        )
         if return_eval is not None:
             return_status, return_score, return_reasons, return_weather = return_eval
-            return_time = commute.return_schedule_time if commute and commute.return_schedule_time else "17:00"
-            return_location = f"{dest_name} -> {origin_name}" if dest_name else origin_name
+            return_time = (
+                commute.return_schedule_time
+                if commute and commute.return_schedule_time
+                else "17:00"
+            )
+            return_location = (
+                f"{dest_name} -> {origin_name}" if dest_name else origin_name
+            )
 
             return_waypoints: List[WaypointEvaluation] = []
             return_segments: List[RouteSegment] = []
             return_hazards: List[HazardPinpoint] = []
 
             # Return start (Dest if dual)
-            ret_start_coord = (thresholds.dest_lat, thresholds.dest_lon) if thresholds.dest_lat is not None else (thresholds.lat, thresholds.lon)
+            ret_start_coord = (
+                (thresholds.dest_lat, thresholds.dest_lon)
+                if thresholds.dest_lat is not None
+                else (thresholds.lat, thresholds.lon)
+            )
             ret_end_coord = (thresholds.lat, thresholds.lon)
 
-            if dest_return_weather and thresholds.dest_lat is not None and thresholds.dest_lon is not None:
-                d_hazards = self.detect_hazard_pinpoints(dest_return_weather, thresholds, ret_start_coord, return_time)
+            if (
+                dest_return_weather
+                and thresholds.dest_lat is not None
+                and thresholds.dest_lon is not None
+            ):
+                d_hazards = self.detect_hazard_pinpoints(
+                    dest_return_weather, thresholds, ret_start_coord, return_time
+                )
                 return_hazards.extend(d_hazards)
                 d_res = self.assess(dest_return_weather, thresholds)
                 return_waypoints.append(
@@ -725,11 +800,15 @@ class AssessmentEngine:
                 )
 
             if origin_return_weather:
-                dur = self.routing_service.calculate_segment_duration(ret_start_coord, ret_end_coord)
+                dur = self.routing_service.calculate_segment_duration(
+                    ret_start_coord, ret_end_coord
+                )
                 etas = self.routing_service.compute_etas(return_time, [dur])
                 orig_eta = etas[1] if len(etas) > 1 else return_time
 
-                o_hazards = self.detect_hazard_pinpoints(origin_return_weather, thresholds, ret_end_coord, orig_eta)
+                o_hazards = self.detect_hazard_pinpoints(
+                    origin_return_weather, thresholds, ret_end_coord, orig_eta
+                )
                 for h in o_hazards:
                     if h not in return_hazards:
                         return_hazards.append(h)
@@ -750,11 +829,19 @@ class AssessmentEngine:
                 )
 
             if len(return_waypoints) > 1:
-                dist = self.routing_service.calculate_distance(ret_start_coord, ret_end_coord)
-                dur = self.routing_service.calculate_segment_duration(ret_start_coord, ret_end_coord)
-                seg_status = _worst_status(return_waypoints[0].status, return_waypoints[1].status)
+                dist = self.routing_service.calculate_distance(
+                    ret_start_coord, ret_end_coord
+                )
+                dur = self.routing_service.calculate_segment_duration(
+                    ret_start_coord, ret_end_coord
+                )
+                seg_status = _worst_status(
+                    return_waypoints[0].status, return_waypoints[1].status
+                )
                 seg_score = min(return_waypoints[0].score, return_waypoints[1].score)
-                seg_reasons = _combine_reasons(return_waypoints[0].reasons, return_waypoints[1].reasons)
+                seg_reasons = _combine_reasons(
+                    return_waypoints[0].reasons, return_waypoints[1].reasons
+                )
                 seg_weather = (
                     return_waypoints[1].weather
                     if return_waypoints[1].score < return_waypoints[0].score
