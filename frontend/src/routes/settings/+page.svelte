@@ -3,7 +3,7 @@
   import { beforeNavigate, goto } from '$app/navigation';
   import { getCommuteConfig, saveCommuteConfig, deleteCommuteConfig, testWebhook } from '$lib/api';
   import { jwt_token } from '$lib/auth';
-  import { newCommute, convertUnits, type Commute } from '$lib/commute';
+  import { newCommute, convertUnits, type Commute, type CommuteSettings } from '$lib/commute';
   import PlacePicker from '$lib/components/PlacePicker.svelte';
   import DayOfWeekSelector from '$lib/components/DayOfWeekSelector.svelte';
   import PushNotificationToggle from '$lib/components/PushNotificationToggle.svelte';
@@ -23,6 +23,8 @@
   });
   function setDraft(commute: Commute) {
     settings = JSON.parse(JSON.stringify(commute));
+    if (settings.notification_time === undefined) settings.notification_time = null;
+    if (settings.return_notification_time === undefined) settings.return_notification_time = null;
     baseline = JSON.stringify(settings);
     error = '';
     message = '';
@@ -75,6 +77,9 @@
       const saved = await saveCommuteConfig({
         ...settings,
         name: settings.name.trim(),
+        notification_time: settings.notification_time || null,
+        return_notification_time:
+          settings.return_schedule_time !== null ? settings.return_notification_time || null : null,
         waypoints: settings.waypoints.map((wp, order) => ({ ...wp, order }))
       });
       baseline = JSON.stringify(settings);
@@ -194,8 +199,25 @@
               type="time"
               value={settings.return_schedule_time || ''}
               disabled={settings.return_schedule_time === null}
+              oninput={(e) => (settings.return_schedule_time = e.currentTarget.value)}
               onchange={(e) => (settings.return_schedule_time = e.currentTarget.value)}
               required={settings.return_schedule_time !== null}
+            /></label
+          >
+          <label
+            >Notify at<input
+              type="time"
+              value={settings.notification_time || ''}
+              oninput={(e) => (settings.notification_time = e.currentTarget.value || null)}
+              onchange={(e) => (settings.notification_time = e.currentTarget.value || null)}
+            /></label
+          ><label
+            >Notify at (return)<input
+              type="time"
+              value={settings.return_notification_time || ''}
+              disabled={settings.return_schedule_time === null}
+              oninput={(e) => (settings.return_notification_time = e.currentTarget.value || null)}
+              onchange={(e) => (settings.return_notification_time = e.currentTarget.value || null)}
             /></label
           >
         </div>
@@ -203,8 +225,10 @@
           ><input
             type="checkbox"
             checked={settings.return_schedule_time !== null}
-            onchange={(e) =>
-              (settings.return_schedule_time = e.currentTarget.checked ? '17:00' : null)}
+            onchange={(e) => {
+              settings.return_schedule_time = e.currentTarget.checked ? '17:00' : null;
+              if (!e.currentTarget.checked) settings.return_notification_time = null;
+            }}
           /> Check my return trip too</label
         >
         <p class="field-label">Commute days</p>
