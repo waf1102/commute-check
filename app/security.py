@@ -4,13 +4,13 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import User, UserCreate
+from app.models import User, UserCreate, UserOut
 
 # Load environment variables
 load_dotenv()
@@ -76,14 +76,64 @@ def register_user(user_data: UserCreate, session: Session = Depends(get_session)
     hashed_password = get_password_hash(user_data.password)
     user = User(email=user_data.email, hashed_password=hashed_password)
     session.add(user)
-    session.commit()
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email already exists"
+        )
     session.refresh(user)
     return {"message": "User registered successfully", "user": user}
 
 @router.post("/login", response_model=dict)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.email == form_data.username)).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+async def login_for_access_token(
+    request: Request,
+    session: Session = Depends(get_session)
+):
+    content_type = request.headers.get("content-type", "")
+    username = None
+    password = None
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                username = body.get("email") or body.get("username")
+                password = body.get("password")
+        except Exception:
+            pass
+    elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            username = form.get("username") or form.get("email")
+            password = form.get("password")
+        except Exception:
+            pass
+    else:
+        # Fallback: try json, then form
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                username = body.get("email") or body.get("username")
+                password = body.get("password")
+        except Exception:
+            try:
+                form = await request.form()
+                username = form.get("username") or form.get("email")
+                password = form.get("password")
+            except Exception:
+                pass
+
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and password are required",
+        )
+
+    user = session.exec(select(User).where(User.email == str(username).strip())).first()
+    if not user or not verify_password(str(password), user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -93,4 +143,16 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), ses
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+        },
+    }
+
+@router.get("/auth/me", response_model=UserOut)
+@router.get("/me", response_model=UserOut)
+async def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    return current_user
