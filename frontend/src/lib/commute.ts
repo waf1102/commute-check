@@ -1,6 +1,6 @@
 import type { Thresholds, Waypoint } from './api';
 
-export interface Commute extends Thresholds {
+export interface CommuteSettings extends Thresholds {
   id?: number;
   name: string;
   origin_name: string;
@@ -11,12 +11,17 @@ export interface Commute extends Thresholds {
   dest_lon: number | null;
   schedule_time: string;
   return_schedule_time: string | null;
+  notification_time?: string | null;
+  return_notification_time?: string | null;
   days_of_week: string;
   timezone: string;
   unit_system: 'imperial' | 'metric';
   webhook_url: string | null;
   waypoints: Waypoint[];
 }
+
+export interface Commute extends CommuteSettings {}
+
 export function newCommute(): Commute {
   return {
     name: 'My commute',
@@ -28,6 +33,8 @@ export function newCommute(): Commute {
     dest_lon: null,
     schedule_time: '08:00',
     return_schedule_time: '17:00',
+    notification_time: null,
+    return_notification_time: null,
     days_of_week: 'mon-fri',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     unit_system: 'imperial',

@@ -73,3 +73,83 @@ it('keeps entered changes and shows the server error when saving fails', async (
   expect(screen.getByLabelText('Commute name')).toHaveValue('My office');
   expect(goto).not.toHaveBeenCalled();
 });
+it('populates notification times from saved commute and saves updated notification times independent of departure times', async () => {
+  const commute = {
+    ...newCommute(),
+    id: 5,
+    origin_name: 'Boston',
+    lat: 42,
+    lon: -71,
+    dest_name: 'Cambridge',
+    dest_lat: 42.1,
+    dest_lon: -71.1,
+    schedule_time: '08:00',
+    return_schedule_time: '17:00',
+    notification_time: '07:15',
+    return_notification_time: '16:30'
+  };
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([commute]);
+  vi.mocked(api.saveCommuteConfig).mockResolvedValue(commute);
+
+  render(Page);
+
+  const outboundNotify = await screen.findByLabelText('Notify at');
+  const returnNotify = await screen.findByLabelText('Notify at (return)');
+  expect(outboundNotify).toHaveValue('07:15');
+  expect(returnNotify).toHaveValue('16:30');
+
+  // Change notification times independently of departure times
+  await fireEvent.input(outboundNotify, { target: { value: '07:00' } });
+  await fireEvent.input(returnNotify, { target: { value: '16:15' } });
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Save and check weather' }));
+  await waitFor(() => expect(api.saveCommuteConfig).toHaveBeenCalledTimes(1));
+
+  expect(vi.mocked(api.saveCommuteConfig).mock.calls[0][0]).toMatchObject({
+    id: 5,
+    schedule_time: '08:00',
+    return_schedule_time: '17:00',
+    notification_time: '07:00',
+    return_notification_time: '16:15'
+  });
+});
+it('disables return notification time and sets it to null when return trip is unchecked', async () => {
+  const commute = {
+    ...newCommute(),
+    id: 6,
+    origin_name: 'Boston',
+    lat: 42,
+    lon: -71,
+    dest_name: 'Cambridge',
+    dest_lat: 42.1,
+    dest_lon: -71.1,
+    schedule_time: '08:00',
+    return_schedule_time: '17:00',
+    notification_time: '07:30',
+    return_notification_time: '16:30'
+  };
+  vi.mocked(api.getCommuteConfig).mockResolvedValue([commute]);
+  vi.mocked(api.saveCommuteConfig).mockResolvedValue(commute);
+
+  render(Page);
+
+  const returnNotify = (await screen.findByLabelText('Notify at (return)')) as HTMLInputElement;
+  expect(returnNotify.disabled).toBe(false);
+
+  const returnTripCheckbox = screen.getByLabelText('Check my return trip too');
+  await fireEvent.click(returnTripCheckbox);
+
+  expect(returnNotify.disabled).toBe(true);
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Save and check weather' }));
+  await waitFor(() => expect(api.saveCommuteConfig).toHaveBeenCalledTimes(1));
+
+  expect(vi.mocked(api.saveCommuteConfig).mock.calls[0][0]).toMatchObject({
+    id: 6,
+    schedule_time: '08:00',
+    return_schedule_time: null,
+    notification_time: '07:30',
+    return_notification_time: null
+  });
+});
+
