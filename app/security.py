@@ -21,6 +21,7 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/login", auto_error=False)
 
 router = APIRouter(prefix="/api", tags=["authentication"])
 
@@ -61,6 +62,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
     if user is None:
         raise credentials_exception
     return user
+
+
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: Session = Depends(get_session)
+) -> Optional[User]:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: Optional[str] = payload.get("sub")
+        if email is None:
+            return None
+    except JWTError:
+        return None
+
+    return session.exec(select(User).where(User.email == email)).first()
+
 
 
 @router.post("/register")
