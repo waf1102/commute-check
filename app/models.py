@@ -4,6 +4,7 @@ from sqlmodel import Field, SQLModel, Relationship
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy.types import TypeDecorator, JSON
 
 
 class Status(str, Enum):
@@ -241,6 +242,92 @@ def validate_and_normalize_days_of_week(val: str) -> str:
     return normalized
 
 
+class Waypoint(BaseModel):
+    name: str = ""
+    lat: float
+    lon: float
+    order: int = 0
+
+    @field_validator("lat")
+    @classmethod
+    def validate_latitude(cls, v: float) -> float:
+        if not (-90.0 <= v <= 90.0):
+            raise ValueError(f"Latitude must be between -90 and 90, got {v}")
+        return v
+
+    @field_validator("lon")
+    @classmethod
+    def validate_longitude(cls, v: float) -> float:
+        if not (-180.0 <= v <= 180.0):
+            raise ValueError(f"Longitude must be between -180 and 180, got {v}")
+        return v
+
+    def __getitem__(self, item):
+        return getattr(self, item)
+
+
+def validate_and_sort_waypoints(v) -> List[Waypoint]:
+    if v is None:
+        return []
+    if isinstance(v, str):
+        import json
+        try:
+            v = json.loads(v)
+        except Exception as exc:
+            raise ValueError(f"Invalid JSON string for waypoints: {exc}") from exc
+    if not isinstance(v, list):
+        raise ValueError("waypoints must be a list")
+
+    parsed = []
+    for item in v:
+        if isinstance(item, Waypoint):
+            parsed.append(item)
+        elif isinstance(item, dict):
+            parsed.append(Waypoint(**item))
+        elif hasattr(item, "model_dump"):
+            parsed.append(Waypoint(**item.model_dump()))
+        else:
+            raise ValueError(f"Invalid waypoint item: {item}")
+    return sorted(parsed, key=lambda wp: wp.order)
+
+
+class WaypointsJSON(TypeDecorator):
+    impl = JSON
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            if isinstance(value, list):
+                result = []
+                for item in value:
+                    if isinstance(item, BaseModel):
+                        result.append(item.model_dump())
+                    elif isinstance(item, dict):
+                        result.append(item)
+                    else:
+                        result.append(item)
+                return result
+            if isinstance(value, str):
+                import json
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return value
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            import json
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except Exception:
+                    pass
+            if isinstance(value, list):
+                return [Waypoint(**item) if isinstance(item, dict) else item for item in value]
+        return value or []
+
+
 class CommuteBase(SQLModel):
     name: str = "Default Commute"
     lat: float
@@ -258,6 +345,7 @@ class CommuteBase(SQLModel):
     max_wind_no_go: float = 25.0
     rain_threshold: float = 30.0
     unit_system: UnitSystem = UnitSystem.IMPERIAL
+    waypoints: Optional[List[Waypoint]] = Field(default_factory=list, sa_column=Column(WaypointsJSON))
 
     @field_validator("days_of_week", mode="before")
     @classmethod
@@ -265,6 +353,11 @@ class CommuteBase(SQLModel):
         if v is None:
             return "mon-fri"
         return validate_and_normalize_days_of_week(v)
+
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def validate_waypoints_field(cls, v):
+        return validate_and_sort_waypoints(v)
 
     def __init__(self, **data):
         if "unit_system" in data and isinstance(data["unit_system"], str):
@@ -277,6 +370,8 @@ class CommuteBase(SQLModel):
                 data["days_of_week"] = "mon-fri"
             else:
                 data["days_of_week"] = validate_and_normalize_days_of_week(data["days_of_week"])
+        if "waypoints" in data:
+            data["waypoints"] = validate_and_sort_waypoints(data["waypoints"])
         super().__init__(**data)
 
     def __setattr__(self, name, value):
@@ -290,6 +385,11 @@ class CommuteBase(SQLModel):
                 value = validate_and_normalize_days_of_week(value)
             else:
                 value = "mon-fri"
+        elif name == "waypoints":
+            if value is not None:
+                value = validate_and_sort_waypoints(value)
+            else:
+                value = []
         super().__setattr__(name, value)
 
 class Commute(CommuteBase, table=True):

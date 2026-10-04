@@ -23,6 +23,7 @@ from .analytics.service import record_assessment_run, log_assessment_run
 from .weather.routes import router as weather_router
 from .push.routes import router as push_router
 from .notifications import NotificationService, dispatch_web_push_notification
+from .routing import routing_service, RoutingService, RouteDirectionsRequest, RouteDirectionsResponse
 
 # --- Scheduler Setup ---
 JOBS_DB_URL = os.getenv("JOBS_DB_URL", "sqlite:///jobs.db")
@@ -565,4 +566,36 @@ async def check_route(
             print(f"Failed to persist on-demand assessment history: {e}")
 
     return assessment_result
+
+
+# --- Route Directions Endpoints ---
+@app.post("/api/route/directions", response_model=RouteDirectionsResponse)
+@app.post("/route/directions", response_model=RouteDirectionsResponse)
+async def get_route_directions_endpoint(request: RouteDirectionsRequest):
+    origin = request.origin
+    if origin is None and request.origin_lat is not None and request.origin_lon is not None:
+        origin = (request.origin_lat, request.origin_lon)
+
+    destination = request.destination
+    if destination is None and request.dest_lat is not None and request.dest_lon is not None:
+        destination = (request.dest_lat, request.dest_lon)
+
+    if origin is None or destination is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Both origin and destination coordinates are required.",
+        )
+
+    try:
+        directions = await routing_service.get_route_directions(
+            origin=origin,
+            destination=destination,
+            waypoints=request.waypoints or [],
+        )
+        return directions
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Routing service error: {str(e)}")
+
 
