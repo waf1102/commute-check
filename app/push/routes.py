@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 import json
@@ -23,6 +23,19 @@ router = APIRouter(prefix="/push", tags=["Push Notifications"])
 def get_vapid_public_key(current_user: User = Depends(get_current_user)):
     _, public_key = get_or_create_vapid_keys()
     return VapidPublicKeyResponse(public_key=public_key)
+
+@router.get("/subscriptions", response_model=List[PushSubscription])
+@router.get("", response_model=List[PushSubscription])
+@router.get("/", response_model=List[PushSubscription])
+def list_subscriptions(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """List all active push subscriptions for current user."""
+    subs = session.exec(
+        select(PushSubscription).where(PushSubscription.user_id == current_user.id)
+    ).all()
+    return subs
 
 @router.post("/subscribe")
 def subscribe(
@@ -90,6 +103,20 @@ def send_test_push(
     hazard_count = req.hazard_count if (req and req.hazard_count is not None) else 0
     primary_hazard_location = req.primary_hazard_location if (req and req.primary_hazard_location is not None) else ""
 
+    extra_data = dict(req.extra_data) if (req and req.extra_data) else {}
+    if req and req.hazard_pinpoints:
+        has_route_hazard = True
+        hazard_count = len(req.hazard_pinpoints)
+        if not primary_hazard_location:
+            first_p = req.hazard_pinpoints[0]
+            primary_hazard_location = (
+                first_p.get("location")
+                or first_p.get("location_name")
+                or first_p.get("name")
+                or ""
+            )
+        extra_data["hazard_pinpoints"] = req.hazard_pinpoints
+
     res = dispatch_web_push_notification(
         user_id=current_user.id,
         title=title,
@@ -99,5 +126,6 @@ def send_test_push(
         has_route_hazard=has_route_hazard,
         hazard_count=hazard_count,
         primary_hazard_location=primary_hazard_location,
+        extra_data=extra_data if extra_data else None,
     )
     return {"status": "sent", "delivered": res["delivered"], "failed": res["failed"]}

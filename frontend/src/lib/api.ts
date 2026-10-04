@@ -299,3 +299,11 @@ export async function sendTestPush(): Promise<any> {
   }
   return response.json();
 }
+
+export async function getPushSubscriptions(): Promise<any[]> {
+  const response = await authenticatedFetch(`${API_BASE_URL}/push/subscriptions`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch push subscriptions');
+  }
+  return response.json();
+}

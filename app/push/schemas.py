@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 class PushKeysSchema(BaseModel):
     p256dh: str
@@ -23,4 +23,7 @@ class TestPushRequest(BaseModel):
     has_route_hazard: Optional[bool] = False
     hazard_count: Optional[int] = 0
     primary_hazard_location: Optional[str] = ""
+    hazard_pinpoints: Optional[List[Dict[str, Any]]] = None
+    extra_data: Optional[Dict[str, Any]] = None
+
 

@@ -48,100 +48,104 @@ def clear_commute_jobs(commute_id: int):
 
 async def run_commute_check(commute_id: int, leg_type: str = "outbound"):
     """ Fetch commute, run route assessment, and send notification for corresponding leg. """
-    with Session(engine) as session:
-        commute = session.get(Commute, commute_id)
-        if not commute:
-            print(f"Error: Could not find commute with id {commute_id}")
-            return None
+    try:
+        with Session(engine) as session:
+            commute = session.get(Commute, commute_id)
+            if not commute:
+                print(f"Error: Could not find commute with id {commute_id}")
+                return None
 
-        print(f"Running assessment for commute: {commute.name} (leg: {leg_type})")
-        try:
-            origin_raw, dest_raw = await app_client.fetch_route_weather(
-                commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
-            )
-        except Exception as e:
-            print(f"Error fetching route weather for commute {commute_id}: {e}")
-            return None
-
-        outbound_time = commute.schedule_time or "08:00"
-        return_time = commute.return_schedule_time or "17:00"
-
-        from .client import parse_hourly_at_time
-        origin_outbound = parse_hourly_at_time(origin_raw, outbound_time)
-        origin_return = parse_hourly_at_time(origin_raw, return_time) if return_time else None
-
-        if dest_raw:
-            dest_outbound = parse_hourly_at_time(dest_raw, outbound_time)
-            dest_return = parse_hourly_at_time(dest_raw, return_time) if return_time else None
-        else:
-            dest_outbound = None
-            dest_return = None
-
-        route_assessment = engine_instance.assess_route(
-            origin_outbound_weather=origin_outbound,
-            dest_outbound_weather=dest_outbound,
-            dest_return_weather=dest_return,
-            origin_return_weather=origin_return,
-            commute=commute
-        )
-
-        leg_key = leg_type.lower()
-        if "return" in leg_key and route_assessment.return_leg:
-            leg_assessment = route_assessment.return_leg
-        else:
-            leg_assessment = route_assessment.outbound_leg
-
-        if commute and commute.name:
-            leg_assessment.commute_name = commute.name
-
-        if commute.webhook_url:
-            await notification_service_instance.send_notification(
-                commute.webhook_url, leg_assessment, leg_type=leg_type
-            )
-        if commute.user_id:
-            title, body = notification_service_instance._format_message(
-                leg_assessment, leg_type=leg_type, commute_name=commute.name if commute else None
-            )
-            pinpoints = notification_service_instance.extract_hazard_pinpoints(leg_assessment)
-            has_route_hazard = bool(pinpoints)
-            hazard_count = len(pinpoints)
-            primary_hazard_location = ""
-            if pinpoints:
-                first_p = pinpoints[0]
-                primary_hazard_location = (
-                    first_p.get("location")
-                    or first_p.get("location_name")
-                    or first_p.get("name")
-                    or ""
+            print(f"Running assessment for commute: {commute.name} (leg: {leg_type})")
+            try:
+                origin_raw, dest_raw = await app_client.fetch_route_weather(
+                    commute.lat, commute.lon, commute.dest_lat, commute.dest_lon, commute.unit_system
                 )
-            dispatch_web_push_notification(
-                commute.user_id,
-                title,
-                body,
-                session,
-                url="/#route-visualizer",
-                has_route_hazard=has_route_hazard,
-                hazard_count=hazard_count,
-                primary_hazard_location=primary_hazard_location,
-                assessment=leg_assessment,
+            except Exception as e:
+                print(f"Error fetching route weather for commute {commute_id}: {e}")
+                return None
+
+            outbound_time = commute.schedule_time or "08:00"
+            return_time = commute.return_schedule_time or "17:00"
+
+            from .client import parse_hourly_at_time
+            origin_outbound = parse_hourly_at_time(origin_raw, outbound_time)
+            origin_return = parse_hourly_at_time(origin_raw, return_time) if return_time else None
+
+            if dest_raw:
+                dest_outbound = parse_hourly_at_time(dest_raw, outbound_time)
+                dest_return = parse_hourly_at_time(dest_raw, return_time) if return_time else None
+            else:
+                dest_outbound = None
+                dest_return = None
+
+            route_assessment = engine_instance.assess_route(
+                origin_outbound_weather=origin_outbound,
+                dest_outbound_weather=dest_outbound,
+                dest_return_weather=dest_return,
+                origin_return_weather=origin_return,
+                commute=commute
             )
 
-        # Automatically persist assessment run
-        try:
-            record_assessment_run(
-                session=session,
-                user_id=commute.user_id,
-                commute_id=commute.id,
-                assessment=leg_assessment,
-                leg_type=leg_type,
-                overall_status=route_assessment.overall_status.value if hasattr(route_assessment.overall_status, "value") else str(route_assessment.overall_status),
-                overall_score=float(route_assessment.overall_score),
-            )
-        except Exception as e:
-            print(f"Failed to persist assessment history: {e}")
+            leg_key = leg_type.lower()
+            if "return" in leg_key and route_assessment.return_leg:
+                leg_assessment = route_assessment.return_leg
+            else:
+                leg_assessment = route_assessment.outbound_leg
 
-        print(f"Assessment complete for {commute.name} ({leg_type}). Score: {leg_assessment.score}")
-        return leg_assessment
+            if commute and commute.name:
+                leg_assessment.commute_name = commute.name
+
+            if commute.webhook_url:
+                await notification_service_instance.send_notification(
+                    commute.webhook_url, leg_assessment, leg_type=leg_type
+                )
+            if commute.user_id:
+                title, body = notification_service_instance._format_message(
+                    leg_assessment, leg_type=leg_type, commute_name=commute.name if commute else None
+                )
+                pinpoints = notification_service_instance.extract_hazard_pinpoints(leg_assessment)
+                has_route_hazard = bool(pinpoints)
+                hazard_count = len(pinpoints)
+                primary_hazard_location = ""
+                if pinpoints:
+                    first_p = pinpoints[0]
+                    primary_hazard_location = (
+                        first_p.get("location")
+                        or first_p.get("location_name")
+                        or first_p.get("name")
+                        or ""
+                    )
+                dispatch_web_push_notification(
+                    commute.user_id,
+                    title,
+                    body,
+                    session,
+                    url="/#route-visualizer",
+                    has_route_hazard=has_route_hazard,
+                    hazard_count=hazard_count,
+                    primary_hazard_location=primary_hazard_location,
+                    assessment=leg_assessment,
+                )
+
+            # Automatically persist assessment run
+            try:
+                record_assessment_run(
+                    session=session,
+                    user_id=commute.user_id,
+                    commute_id=commute.id,
+                    assessment=leg_assessment,
+                    leg_type=leg_type,
+                    overall_status=route_assessment.overall_status.value if hasattr(route_assessment.overall_status, "value") else str(route_assessment.overall_status),
+                    overall_score=float(route_assessment.overall_score),
+                )
+            except Exception as e:
+                print(f"Failed to persist assessment history: {e}")
+
+            print(f"Assessment complete for {commute.name} ({leg_type}). Score: {leg_assessment.score}")
+            return leg_assessment
+    except Exception as e:
+        print(f"Error running commute check for commute {commute_id}: {e}")
+        return None
 
 def schedule_commute_check(commute: Commute):
     """Adds or updates independent outbound and return jobs in the scheduler for a given commute."""
@@ -231,6 +235,7 @@ app.include_router(analytics_router)
 app.include_router(analytics_router, prefix="/api")
 app.include_router(weather_router)
 app.include_router(push_router)
+app.include_router(push_router, prefix="/api")
 
 @app.get("/health")
 def health_check():
