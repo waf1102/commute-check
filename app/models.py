@@ -468,6 +468,12 @@ class CommuteBase(SQLModel):
     return_schedule_time: Optional[str] = Field(
         default="17:00", sa_column=Column(String().evaluates_none(), nullable=True)
     )
+    notification_time: Optional[str] = Field(
+        default=None, sa_column=Column(String().evaluates_none(), nullable=True)
+    )
+    return_notification_time: Optional[str] = Field(
+        default=None, sa_column=Column(String().evaluates_none(), nullable=True)
+    )
     days_of_week: str = "mon-fri"
     webhook_url: Optional[str] = None
     min_temp_caution: float = 45.0
@@ -562,6 +568,12 @@ class CommuteCreate(CommuteBase):
                 r"(?:[01]\d|2[0-3]):[0-5]\d", value
             ):
                 raise ValueError("Departure times must use HH:MM")
+        for name in ("notification_time", "return_notification_time"):
+            value = getattr(self, name)
+            if value is not None and not re.fullmatch(
+                r"(?:[01]\d|2[0-3]):[0-5]\d", value
+            ):
+                raise ValueError("Notification times must use HH:MM")
         try:
             ZoneInfo(self.timezone)
         except (ZoneInfoNotFoundError, ValueError):
