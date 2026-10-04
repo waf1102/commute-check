@@ -1,7 +1,6 @@
 import { get } from 'svelte/store';
-import { jwt_token } from './auth'; // Assuming auth.ts is in the same directory
-
-const API_BASE_URL = '/api'; // Adjust if your API is hosted elsewhere
+import { jwt_token, user } from './auth';
+import type { Commute } from './commute';
 
 export interface Thresholds {
   min_temp_caution: number;
@@ -10,16 +9,14 @@ export interface Thresholds {
   max_wind_no_go: number;
   rain_threshold: number;
 }
-
-export interface HourlyForecastItem {
-  time: string;
+export interface Weather {
   temperature: number;
   apparent_temp: number;
   wind_speed: number;
+  wind_gusts?: number;
   precip_prob: number;
   weather_code: number;
 }
-
 export interface LegAssessment {
   leg_type: string;
   location_name: string;
@@ -27,326 +24,118 @@ export interface LegAssessment {
   status: string;
   score: number;
   reasons: string[];
-  weather?: HourlyForecastItem;
+  weather?: Weather;
+  waypoint_evaluations?: {
+    name: string;
+    estimated_arrival_time: string;
+    status: string;
+    reasons: string[];
+  }[];
 }
-
 export interface Waypoint {
-  id?: string | number;
   name: string;
-  lat: number;
-  lon: number;
+  lat: number | null;
+  lon: number | null;
   order?: number;
-  status?: string;
 }
-
-export interface HazardPinpoint {
-  lat: number;
-  lon: number;
-  location_name?: string;
-  title?: string;
-  weather_conditions?: string;
-  weather?: HourlyForecastItem | any;
-  risk_factors?: string[];
-  reasons?: string[];
-  severity?: string;
-}
-
 export interface RouteAssessmentResult {
+  assessment_date?: string;
+  checked_at?: string;
+  timezone?: string;
+  routing_estimated?: boolean;
   overall_status: string;
   overall_score: number;
   outbound_leg: LegAssessment;
-  return_leg?: LegAssessment;
+  return_leg?: LegAssessment | null;
   recommendation: string;
-  hazard_pinpoints?: HazardPinpoint[];
+}
+export interface DailyStats {
+  date: string;
+  days_ridden: number;
+  days_driven: number;
+  days_total: number;
+}
+export interface Place {
+  name: string;
+  lat: number;
+  lon: number;
+  timezone: string;
 }
 
-export interface ForecastResponse {
-  unit_system: string;
-  thresholds: Thresholds;
-  hourly: HourlyForecastItem[];
-  destination_hourly?: HourlyForecastItem[];
-}
-
-export async function authenticatedFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
+export async function authenticatedFetch(
+  input: RequestInfo,
+  init?: RequestInit
+): Promise<Response> {
   const token = get(jwt_token);
   const headers = new Headers(init?.headers);
-
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      ...init,
+      headers,
+      signal: init?.signal || AbortSignal.timeout(60000)
+    });
+  } catch {
+    throw new Error('Cannot reach the server. Check your connection and try again.');
   }
-
-  const response = await fetch(input, {
-    ...init,
-    headers,
-  });
-
-  // Handle unauthorized responses globally if needed
   if (response.status === 401) {
-    // Optionally trigger logout or redirect to login
-    // For now, let's just let the component handle it or throw
+    jwt_token.set(null);
+    user.set(null);
+    localStorage.removeItem('jwt_token');
+    throw new Error('Your session has ended. Please sign in again.');
   }
-
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const detail = data.detail;
+    throw new Error(
+      typeof detail === 'string'
+        ? detail
+        : detail?.[0]?.msg || 'Something went wrong. Please try again.'
+    );
+  }
   return response;
 }
-
-export async function getCommuteData(): Promise<any> { // Replace 'any' with actual type later
-  const response = await authenticatedFetch(`${API_BASE_URL}/commutes`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch commute data');
-  }
-  return response.json();
-}
-
-// Add other API functions here as needed.
-export async function getCommuteConfig(): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/config`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch commute config');
-  }
-  return response.json();
-}
-
-export async function getCommute(id: number): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch commute');
-  }
-  return response.json();
-}
-
-export async function saveCommuteConfig(config: any): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
+async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const response = await authenticatedFetch(`/api${path}`, {
+    method,
+    ...(body === undefined
+      ? {}
+      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   });
-  if (!response.ok) {
-    throw new Error('Failed to save commute config');
-  }
   return response.json();
 }
-
-export async function createCommute(commute: any): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/commutes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(commute),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to create commute');
-  }
-  return response.json();
-}
-
-export async function updateCommute(id: number, commute: any): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(commute),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to update commute');
-  }
-  return response.json();
-}
-
-export async function deleteCommuteConfig(id: number): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/config/${id}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete commute config');
-  }
-  return response.json();
-}
-
-export async function deleteCommute(id: number): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/commutes/${id}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete commute');
-  }
-  return response.json();
-}
-
-export async function testWebhook(config: any): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/test-webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to test webhook');
-  }
-  return response.json();
-}
-
-export async function getCommuteAssessment(queryParams: URLSearchParams): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/assess?${queryParams.toString()}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch commute assessment');
-  }
-  return response.json();
-}
-
-export async function checkRoute(params: {
-  lat?: number;
-  lon?: number;
-  dest_name?: string;
-  dest_lat?: number | null;
-  dest_lon?: number | null;
-  schedule_time?: string;
-  return_schedule_time?: string;
-  commute_id?: number;
-}): Promise<RouteAssessmentResult> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/check`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to run route check');
-  }
-  return response.json();
-}
-
-export async function getCommuteStats(
-  userId?: string | number | null,
-  startDate?: string,
-  endDate?: string
-): Promise<any> {
-  const queryParams = new URLSearchParams();
-  if (userId !== undefined && userId !== null && String(userId).trim() !== '') {
-    queryParams.append('user_id', String(userId).trim());
-  }
-  if (startDate) {
-    queryParams.append('start_date', startDate);
-  }
-  if (endDate) {
-    queryParams.append('end_date', endDate);
-  }
-  const queryStr = queryParams.toString();
-  const url = `${API_BASE_URL}/analytics/commute-stats/daily${queryStr ? '?' + queryStr : ''}`;
-  const response = await authenticatedFetch(url);
-  if (!response.ok) {
-    throw new Error('Failed to fetch commute stats');
-  }
-  return response.json();
-}
-
-export async function recordDecision(params: {
-  commute_id?: number;
-  decision?: 'riding' | 'driving' | string;
-  commute_type?: string;
-  date?: string;
-  timestamp?: string;
-  commute_distance_km?: number;
-  duration_minutes?: number;
-  assessment_history_id?: number;
-}): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/analytics/record-decision`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to record decision');
-  }
-  return response.json();
-}
-
-
-export async function getWeatherForecast(
-  commuteId?: number,
-  unitSystem: string = 'imperial',
-  destLat?: number | null,
-  destLon?: number | null
-): Promise<ForecastResponse> {
-  const queryParams = new URLSearchParams();
-  if (commuteId !== undefined) {
-    queryParams.append('commute_id', commuteId.toString());
-  }
-  if (unitSystem) {
-    queryParams.append('unit_system', unitSystem);
-  }
-  if (destLat !== undefined && destLat !== null) {
-    queryParams.append('dest_lat', destLat.toString());
-  }
-  if (destLon !== undefined && destLon !== null) {
-    queryParams.append('dest_lon', destLon.toString());
-  }
-  const url = `${API_BASE_URL}/weather/forecast${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-  const response = await authenticatedFetch(url);
-  if (!response.ok) {
-    throw new Error('Failed to fetch weather forecast');
-  }
-  return response.json();
-}
+export const getCommuteConfig = () => request<Commute[]>('/config');
+export const saveCommuteConfig = (config: Commute) => request<Commute>('/config', 'POST', config);
+export const deleteCommuteConfig = (id: number) =>
+  request<{ status: string }>(`/config/${id}`, 'DELETE');
+export const testWebhook = (config: Commute) => request('/test-webhook', 'POST', config);
+export const checkRoute = ({ commute_id }: { commute_id: number }) =>
+  request<RouteAssessmentResult>(`/check?commute_id=${commute_id}&save_history=true`, 'POST');
+export const getCommuteStats = (startDate: string, endDate: string) =>
+  request<DailyStats[]>(
+    `/analytics/commute-stats/daily?${new URLSearchParams({ start_date: startDate, end_date: endDate })}`
+  );
+export const recordDecision = (params: { decision: 'riding' | 'driving'; date: string }) =>
+  request('/analytics/record-decision', 'POST', params);
+export const searchPlaces = (query: string) =>
+  request<Place[]>(`/places?q=${encodeURIComponent(query)}`);
+export const getVapidPublicKey = () => request<{ public_key: string }>('/push/vapid-public-key');
+export const subscribePush = (data: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  user_agent?: string;
+}) => request('/push/subscribe', 'POST', data);
+export const unsubscribePush = (endpoint: string) =>
+  request('/push/unsubscribe', 'DELETE', { endpoint });
+export const sendTestPush = () =>
+  request<{ delivered: number; failed: number }>('/push/test', 'POST');
 
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
   return outputArray;
-}
-
-export async function getVapidPublicKey(): Promise<{ public_key: string }> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/push/vapid-public-key`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch VAPID public key');
-  }
-  return response.json();
-}
-
-export async function subscribePush(subscriptionData: {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-  user_agent?: string;
-}): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/push/subscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(subscriptionData),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to subscribe to push notifications');
-  }
-  return response.json();
-}
-
-export async function unsubscribePush(endpoint: string): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/push/unsubscribe`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint }),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to unsubscribe from push notifications');
-  }
-  return response.json();
-}
-
-export async function sendTestPush(): Promise<any> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/push/test`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to send test push notification');
-  }
-  return response.json();
-}
-
-export async function getPushSubscriptions(): Promise<any[]> {
-  const response = await authenticatedFetch(`${API_BASE_URL}/push/subscriptions`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch push subscriptions');
-  }
-  return response.json();
 }

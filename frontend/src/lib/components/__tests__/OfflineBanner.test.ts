@@ -7,7 +7,7 @@ describe('OfflineBanner', () => {
     Object.defineProperty(navigator, 'onLine', {
       value: true,
       configurable: true,
-      writable: true,
+      writable: true
     });
   });
 
@@ -18,9 +18,9 @@ describe('OfflineBanner', () => {
 
   it('renders offline warning when window fires offline event', async () => {
     render(OfflineBanner);
-    
+
     window.dispatchEvent(new Event('offline'));
-    
+
     expect(await screen.findByTestId('offline-banner')).toBeInTheDocument();
     expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
   });

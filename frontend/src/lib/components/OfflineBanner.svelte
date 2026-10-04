@@ -26,8 +26,8 @@
 </script>
 
 {#if isOffline}
-  <div class="offline-banner" data-testid="offline-banner">
-    <span>⚠️ You are offline. Showing cached weather forecast data.</span>
+  <div class="offline-banner" role="status" data-testid="offline-banner">
+    <span>You are offline. Reconnect and refresh before relying on a forecast.</span>
   </div>
 {/if}
 

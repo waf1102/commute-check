@@ -1,37 +1,42 @@
 {
-	"name": "frontend",
-	"private": true,
-	"version": "0.0.1",
-	"type": "module",
-	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "vitest"
-	},
-	"devDependencies": {
-		"@sveltejs/adapter-node": "^5.5.2",
-		"@sveltejs/kit": "^2.50.2",
-		"@sveltejs/vite-plugin-svelte": "^6.2.4",
-		"@testing-library/jest-dom": "^7.0.0",
-		"@testing-library/svelte": "^5.3.1",
-		"@types/leaflet": "^1.9.22",
-		"@types/node": "^26.1.2",
-		"@vitest/ui": "^4.1.7",
-		"jsdom": "^29.1.1",
-		"svelte": "^5.51.0",
-		"svelte-check": "^4.4.2",
-		"typescript": "^5.9.3",
-		"vite": "^7.3.1",
-		"vitest": "^4.1.7",
-		"vitest-svelte-kit": "^0.0.7"
-	},
-	"dependencies": {
-		"chart.js": "^4.5.1",
-		"leaflet": "^1.9.4",
-		"svelte-chartjs": "^4.0.1"
-	}
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@sveltejs/adapter-node": "^5.5.2",
+    "@sveltejs/kit": "^2.50.2",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/svelte": "^5.3.1",
+    "@types/node": "^26.1.2",
+    "@vitest/ui": "^4.1.11",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.9",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.51.0",
+    "svelte-check": "^4.4.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.1.11",
+    "vitest-svelte-kit": "^0.0.7"
+  },
+  "overrides": {
+    "cookie": "^0.7.2"
+  }
 }

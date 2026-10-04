@@ -1,15 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
-import { login, register, logout, fetchCurrentUser, jwt_token, user, decodeJwt, getUserEmailFromToken } from '../auth';
+import {
+  login,
+  register,
+  logout,
+  fetchCurrentUser,
+  jwt_token,
+  user,
+  decodeJwt,
+  getUserEmailFromToken
+} from '../auth';
 
 // Mock navigation
 vi.mock('$app/navigation', () => ({
-  goto: vi.fn(),
+  goto: vi.fn()
 }));
 
 // Mock environment
 vi.mock('$app/environment', () => ({
-  browser: true,
+  browser: true
 }));
 
 describe('Frontend auth module', () => {
@@ -31,8 +40,8 @@ describe('Frontend auth module', () => {
       json: async () => ({
         access_token: 'fake-jwt-token-123',
         token_type: 'bearer',
-        user: mockUser,
-      }),
+        user: mockUser
+      })
     } as Response);
 
     const token = await login('rider@example.com', 'password123');
@@ -49,12 +58,12 @@ describe('Frontend auth module', () => {
         ok: true,
         json: async () => ({
           access_token: 'token-without-user',
-          token_type: 'bearer',
-        }),
+          token_type: 'bearer'
+        })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => mockUser,
+        json: async () => mockUser
       } as Response);
 
     const token = await login('driver@example.com', 'password123');
@@ -67,7 +76,7 @@ describe('Frontend auth module', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,
       status: 401,
-      json: async () => ({ detail: 'Incorrect username or password' }),
+      json: async () => ({ detail: 'Incorrect username or password' })
     } as Response);
 
     await expect(login('bad@example.com', 'wrongpass')).rejects.toThrow(
@@ -78,11 +87,12 @@ describe('Frontend auth module', () => {
   });
 
   it('fetchCurrentUser populates user store when token is valid', async () => {
+    jwt_token.set('valid-token-abc');
     const mockUser = { id: 5, email: 'commuter@example.com' };
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => mockUser,
+      json: async () => mockUser
     } as Response);
 
     const res = await fetchCurrentUser('valid-token-abc');
@@ -98,7 +108,7 @@ describe('Frontend auth module', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,
       status: 401,
-      json: async () => ({ detail: 'Could not validate credentials' }),
+      json: async () => ({ detail: 'Could not validate credentials' })
     } as Response);
 
     const res = await fetchCurrentUser('expired-token');
@@ -112,7 +122,7 @@ describe('Frontend auth module', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,
       status: 400,
-      json: async () => ({ detail: 'User with this email already exists' }),
+      json: async () => ({ detail: 'User with this email already exists' })
     } as Response);
 
     await expect(register('dup@example.com', 'password123')).rejects.toThrow(
@@ -120,18 +130,17 @@ describe('Frontend auth module', () => {
     );
   });
 
-  it('register succeeds and returns user info without polluting token if not included', async () => {
+  it('register reports a missing session without persisting an undefined token', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({
         message: 'User registered successfully',
-        user: { id: 10, email: 'new@example.com' },
-      }),
+        user: { id: 10, email: 'new@example.com' }
+      })
     } as Response);
 
-    const res = await register('new@example.com', 'password123');
-    expect(res.message).toBe('User registered successfully');
+    await expect(register('new@example.com', 'password123')).rejects.toThrow('Sign in failed');
     expect(get(jwt_token)).toBeNull();
     expect(localStorage.getItem('jwt_token')).toBeNull();
   });
@@ -153,10 +162,7 @@ describe('Frontend auth module', () => {
     function makeJwt(payload: any): string {
       const header = { alg: 'HS256', typ: 'JWT' };
       const toBase64Url = (obj: any) =>
-        btoa(JSON.stringify(obj))
-          .replace(/\+/g, '-')
-          .replace(/\//g, '_')
-          .replace(/=+$/, '');
+        btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       return `${toBase64Url(header)}.${toBase64Url(payload)}.fake_signature`;
     }
 
@@ -169,7 +175,11 @@ describe('Frontend auth module', () => {
     });
 
     it('decodeJwt correctly extracts email and custom fields from JWT token', () => {
-      const token = makeJwt({ email: 'commuter@example.com', name: 'Commuter Jane', custom_role: 'admin' });
+      const token = makeJwt({
+        email: 'commuter@example.com',
+        name: 'Commuter Jane',
+        custom_role: 'admin'
+      });
       const payload = decodeJwt(token);
       expect(payload).not.toBeNull();
       expect(payload?.email).toBe('commuter@example.com');

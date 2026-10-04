@@ -1,42 +1,30 @@
-# sv
+# Commute Check frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
-
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+Svelte 5 / SvelteKit with the Node adapter. See the [root README](../README.md) for the full setup.
 
 ```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv@0.12.8 create --template minimal --types ts --add sveltekit-adapter="adapter:node" --no-install frontend
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+npm ci
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
-
-To create a production version of your app:
+The Python backend should be running on port 8000. The SvelteKit `/api/*` gateway uses `BACKEND_URL` (default `http://127.0.0.1:8000`) in both development and production. This variable is server-side; do not use a `VITE_` browser URL.
 
 ```sh
+npm run check
+npm test
 npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
-You can preview the production build with `npm run preview`.
+Browser tests require the Python dependencies from `../requirements.txt`. They launch their own backend and frontend on ports 8001 and 4173, use an isolated database, and replace external providers. Traces and screenshots appear in `test-results` on failure; inspect with `npx playwright show-trace <trace.zip>`.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+For a production Node process:
+
+```sh
+BACKEND_URL=http://127.0.0.1:8000 ORIGIN=http://localhost:3000 node build
+```
+
+Use the actual public HTTPS origin when deployed. `npm run format` formats source with Prettier; `npm run format:check` checks formatting. `npm run test:watch` watches unit tests.
+
+The `cookie` override in `package.json` keeps SvelteKit's transitive cookie parser on the patched 0.7 line while retaining the existing SvelteKit major version. Revisit the override when upgrading SvelteKit.

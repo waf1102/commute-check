@@ -1,2 +1,1 @@
-// place files you want to import through the `$lib` alias in this folder.
-export { default as RouteMap } from './components/RouteMap.svelte';
+export { newCommute, convertUnits } from './commute';

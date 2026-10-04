@@ -26,7 +26,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
     measureText: vi.fn(() => ({ width: 0 })),
     transform: vi.fn(),
     rect: vi.fn(),
-    clip: vi.fn(),
+    clip: vi.fn()
   }) as any;
 }
 

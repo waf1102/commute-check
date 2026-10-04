@@ -1,6 +1,6 @@
 export interface DayOption {
-  key: string;      // 'mon', 'tue', etc.
-  label: string;    // 'Mon', 'Tue', etc.
+  key: string; // 'mon', 'tue', etc.
+  label: string; // 'Mon', 'Tue', etc.
   fullName: string; // 'Monday', 'Tuesday', etc.
 }
 
@@ -11,7 +11,7 @@ export const DAYS_OF_WEEK: DayOption[] = [
   { key: 'thu', label: 'Thu', fullName: 'Thursday' },
   { key: 'fri', label: 'Fri', fullName: 'Friday' },
   { key: 'sat', label: 'Sat', fullName: 'Saturday' },
-  { key: 'sun', label: 'Sun', fullName: 'Sunday' },
+  { key: 'sun', label: 'Sun', fullName: 'Sunday' }
 ];
 
 export const ORDERED_DAY_KEYS = DAYS_OF_WEEK.map((d) => d.key);
@@ -25,7 +25,7 @@ const DAY_ALIASES: Record<string, string> = {
   thursday: 'thu',
   friday: 'fri',
   saturday: 'sat',
-  sunday: 'sun',
+  sunday: 'sun'
 };
 
 /**
@@ -120,7 +120,5 @@ export function formatDaysSummary(days: string[]): string {
   if (serialized === 'mon,tue,wed,thu,fri,sat,sun') return 'All Days (Everyday)';
   if (serialized === 'sat,sun') return 'Weekends (Sat–Sun)';
 
-  return days
-    .map((k) => DAYS_OF_WEEK.find((d) => d.key === k)?.label || k)
-    .join(', ');
+  return days.map((k) => DAYS_OF_WEEK.find((d) => d.key === k)?.label || k).join(', ');
 }

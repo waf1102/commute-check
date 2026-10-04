@@ -15,7 +15,11 @@
   let isSupported = $state<boolean>(true);
 
   onMount(async () => {
-    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      !('serviceWorker' in navigator)
+    ) {
       isSupported = false;
       return;
     }
@@ -23,13 +27,30 @@
     permissionState = Notification.permission;
 
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await readyRegistration();
       const sub = await reg.pushManager.getSubscription();
       isSubscribed = !!sub;
     } catch (e) {
       console.error('Error checking push subscription:', e);
     }
   });
+
+  async function readyRegistration(): Promise<ServiceWorkerRegistration> {
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      return await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Notifications are not ready. Reload the app and try again.')),
+            8000
+          );
+        })
+      ]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
 
   async function togglePush() {
     if (!isSupported) {
@@ -52,7 +73,7 @@
         }
 
         const { public_key } = await getVapidPublicKey();
-        const reg = await navigator.serviceWorker.ready;
+        const reg = await readyRegistration();
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(public_key) as BufferSource
@@ -68,9 +89,9 @@
         });
 
         isSubscribed = true;
-        message = 'Web Push notifications enabled successfully!';
+        message = 'Departure notifications enabled.';
       } else {
-        const reg = await navigator.serviceWorker.ready;
+        const reg = await readyRegistration();
         const sub = await reg.pushManager.getSubscription();
 
         if (sub) {
@@ -83,7 +104,7 @@
         }
 
         isSubscribed = false;
-        message = 'Web Push notifications disabled.';
+        message = 'Departure notifications disabled.';
       }
     } catch (err: any) {
       message = err.message || 'An error occurred while updating push notification status.';
@@ -98,7 +119,7 @@
 
     try {
       const res = await sendTestPush();
-      message = `Test notification dispatched! (${res.delivered || 1} delivered)`;
+      message = `Test notification dispatched! (${res.delivered ?? 0} delivered)`;
     } catch (err: any) {
       message = err.message || 'Failed to dispatch test notification.';
     } finally {
@@ -110,10 +131,8 @@
 <div class="card push-toggle-card" data-testid="push-notification-toggle">
   <div class="push-header">
     <div>
-      <h3>🔔 Push Notifications</h3>
-      <p class="description">
-        Get instant Go/No-Go commute safety alerts on your device.
-      </p>
+      <h3>Push notifications</h3>
+      <p class="description">Get a weather update at your saved departure times.</p>
     </div>
     {#if isSupported}
       <button
@@ -131,11 +150,7 @@
   {:else if isSubscribed}
     <div class="push-actions">
       <span class="status-active">● Subscribed on this device</span>
-      <button
-        onclick={handleTestPush}
-        disabled={loading}
-        class="btn-secondary"
-      >
+      <button onclick={handleTestPush} disabled={loading} class="btn-secondary">
         Send Test Notification
       </button>
     </div>

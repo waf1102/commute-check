@@ -15,7 +15,7 @@ describe('DayOfWeekSelector component', () => {
       { name: 'Thursday', label: 'Thu' },
       { name: 'Friday', label: 'Fri' },
       { name: 'Saturday', label: 'Sat' },
-      { name: 'Sunday', label: 'Sun' },
+      { name: 'Sunday', label: 'Sun' }
     ];
 
     for (const day of days) {
@@ -52,11 +52,23 @@ describe('DayOfWeekSelector component', () => {
     });
 
     expect(screen.getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Tuesday' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'Wednesday' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Thursday' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Tuesday' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'Wednesday' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Thursday' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
     expect(screen.getByRole('button', { name: 'Friday' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'Saturday' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Saturday' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
     expect(screen.getByRole('button', { name: 'Sunday' })).toHaveAttribute('aria-pressed', 'false');
   });
 
@@ -112,13 +124,28 @@ describe('DayOfWeekSelector component', () => {
 
     expect(screen.getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Tuesday' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Wednesday' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Thursday' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Wednesday' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Thursday' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
     expect(screen.getByRole('button', { name: 'Friday' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Saturday' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Saturday' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
     expect(screen.getByRole('button', { name: 'Sunday' })).toHaveAttribute('aria-pressed', 'false');
 
-    expect(onChange).toHaveBeenCalledWith('mon,tue,wed,thu,fri', ['mon', 'tue', 'wed', 'thu', 'fri']);
+    expect(onChange).toHaveBeenCalledWith('mon,tue,wed,thu,fri', [
+      'mon',
+      'tue',
+      'wed',
+      'thu',
+      'fri'
+    ]);
   });
 
   it('applies "All Days" preset immediately', async () => {
@@ -138,10 +165,15 @@ describe('DayOfWeekSelector component', () => {
       expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
     }
 
-    expect(onChange).toHaveBeenCalledWith(
-      'mon,tue,wed,thu,fri,sat,sun',
-      ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-    );
+    expect(onChange).toHaveBeenCalledWith('mon,tue,wed,thu,fri,sat,sun', [
+      'mon',
+      'tue',
+      'wed',
+      'thu',
+      'fri',
+      'sat',
+      'sun'
+    ]);
   });
 
   it('applies "Clear" preset immediately', async () => {
