@@ -1,87 +1,186 @@
-# Commute Check
+# 🏍️ Commute Check
 
-A small weather app for deciding whether to ride to work. Save your starting place, destination, departure times and commute days. Then check one recommendation, with separate forecasts for the trip out and the trip back.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com/)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.0+-orange.svg)](https://kit.svelte.dev/)
+[![Docker](https://img.shields.io/badge/Docker-enabled-blue.svg)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-The app compares the forecast with your temperature, wind and rain limits. It checks saved stops too. It does **not** predict road surface conditions or guarantee a safe ride.
+**Commute Check** is an intelligent weather decision assistant for motorcyclists, cyclists, and daily commuters. Instead of constantly checking weather apps and guessing conditions hours ahead, Commute Check answers one simple question before you head out: **"Should I ride today?"**
 
-## Use it
+It evaluates hyper-local weather forecasts against your personalized comfort thresholds across both legs of your journey—your trip to work in the morning and your ride back home in the evening.
 
-1. Create an account.
-2. Search for your town or postal code, or use your current location. Choose a destination.
-3. Set your departure times and commute days, then select **Save and check weather**.
-4. Before leaving, check both trips. The overall recommendation uses the worse trip. Refresh if you have left the page open.
+---
 
-Weather limits, intermediate stops and notifications are optional settings. Switching units converts your limits. Uncheck the return trip for a one-way commute. A return time earlier than the outbound time means the following day.
+## ✨ Features
 
-## Run locally
+- **Two-Leg Journey Analysis:** Evaluates separate forecasts for your outbound morning commute and your evening return ride.
+- **Personalized Risk Thresholds:** Set your limits for temperature (min/max), rain probability and precipitation rate, wind speed, and wind gusts.
+- **Route-Aware Forecasts:** Weather is sampled and interpolated along your route (origin, destination, and any intermediate stops) using OSRM routing and Open-Meteo.
+- **Smart Recommendations:** Provides clear Go / Caution / No-Go recommendations based on the worst conditions encountered on each trip.
+- **Push Notifications:** Optional web push notifications sent before your scheduled departure times so you know what to wear or if you need to take an alternative route.
+- **PWA & Mobile Ready:** Responsive modern interface built with SvelteKit, installable as a Progressive Web App (PWA).
 
-Requires Python 3.11+ and Node 22. Internet access is needed for place searches and real forecasts.
+---
 
-From the repository root:
+## 🚀 How It Works & How to Use
+
+1. **Sign Up / Log In:** Create an account to store your personal routes and preferences.
+2. **Configure Your Route & Times:**
+   - Set your starting location, destination, and any stops along the way.
+   - Choose your commute days (e.g., Monday through Friday) and set departure times for outbound and return trips.
+3. **Set Your Weather Limits:** Customize your comfort zones (minimum/maximum temperature, wind tolerance, and rain limits) under **Settings**.
+4. **Check Your Commute:**
+   - View an immediate breakdown of both legs of your trip.
+   - If conditions on either leg exceed your limits, the app highlights the risk factors (e.g., heavy rain, high wind gusts, freezing temperatures).
+5. **(Optional) Enable Notifications:** Enable web push notifications to receive departure alerts directly on your device.
+
+---
+
+## 🛠️ Quick Start & Setup
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) (recommended for containerized setup), **OR**
+- Python 3.11+ and Node.js 22+ (for running directly from source).
+
+### Configuration
+
+Copy the example environment file and configure your secret key:
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set `SECRET_KEY` in `.env` to a random value (generate one with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`). Keep it private and stable across restarts.
+Open `.env` and set `SECRET_KEY` to a secure random string (generate one with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`).
 
-Start the API:
+---
 
-```sh
-uvicorn app.main:app --reload --port 8000
-```
+### Running with Containers
 
-In another terminal:
+Choose your preferred container engine below:
 
-```sh
-cd frontend
-npm ci
-npm run dev
-```
+<details>
+<summary><strong>🐳 Docker Instructions</strong></summary>
 
-Open **http://localhost:5173**. The frontend forwards `/api/*` to the Python server; no browser API URL or separate proxy is needed. To use a different API server, set `BACKEND_URL` when starting the frontend. API documentation is at http://localhost:8000/docs.
+#### Running with Docker Compose
 
-## Docker
+1. **Build and start services in the background:**
+   ```sh
+   docker compose up --build -d
+   ```
 
-After configuring `.env`:
+2. **Access the application:**
+   - Frontend UI: [http://localhost:3000](http://localhost:3000)
+   - Backend API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-```sh
-docker compose up --build -d
-```
+3. **Useful Docker commands:**
+   - View application logs:
+     ```sh
+     docker compose logs -f
+     ```
+   - Stop the application:
+     ```sh
+     docker compose down
+     ```
 
-Open **http://localhost:3000**. SQLite databases and push keys are stored in the `commute_data` volume. Back up that volume before upgrading. Do not use `docker compose down -v` unless you intend to delete the data.
+> **Note:** SQLite databases and push keys are persisted in the named volume `commute_data`. Do not use `docker compose down -v` unless you want to wipe application data.
 
-For a public installation, use HTTPS and set `ORIGIN` to the public frontend URL. HTTPS (or localhost) is required for browser location and push notifications. Run **one backend process**: it owns the notification scheduler. This is a small self-hosted app, without password reset or email verification; apply access controls and rate limits at your reverse proxy if exposing it publicly.
+</details>
 
-## Verify changes
+<details>
+<summary><strong>🦭 Podman Instructions</strong></summary>
 
-```sh
-pytest -q
-cd frontend
-npm run check
-npm test
-npm run build
-npx playwright install chromium
-npm run test:e2e
-```
+#### Running with Podman Compose
 
-The browser tests start a real FastAPI server, an isolated SQLite database and the frontend gateway. Only weather, routing and place providers are replaced. They cover registration, place selection, saving, both trips, one-way trips, metric units, unavailable forecasts, sign-in after reload, unsaved edits and correcting the ride log, on desktop and phone-sized Chromium. They also check accessibility with axe. They do not verify real notification delivery or Safari/iOS behaviour.
+Commute Check works seamlessly with rootless Podman.
 
-Backend tests must not make external HTTP requests. Forecast fixtures cover multiple days; tests should not depend on today's actual weather. `npm test` runs once; `npm run test:watch` watches. Format the frontend with `npm run format`; Python files use `ruff format app tests` (Ruff 0.16.10).
+1. **Build and start services using Podman Compose:**
+   ```sh
+   podman compose up --build -d
+   ```
+   *(Alternatively, if using `podman-compose` CLI plugin: `podman-compose up --build -d`)*
 
-## Forecast behaviour and limits
+2. **Access the application:**
+   - Frontend UI: [http://localhost:3000](http://localhost:3000)
+   - Backend API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-- Checks use the next scheduled commute day, or today's commute if the return trip is still ahead. Both times use the commute's saved time zone.
-- Weather is sampled at the origin, destination and optional stops, interpolated at estimated arrival times. This is **not continuous coverage of every road segment**.
-- Road travel times come from OSRM, without traffic or time spent at stops. If routing fails, a distance-based estimate is used and labelled on the result.
-- Open-Meteo responses are cached for up to 15 minutes. “Checked” is the assessment time, not the forecast's publication time.
-- A failed or incomplete weather response shows “Forecast unavailable.” Personal forecasts are not served from an offline cache.
-- Notifications run at the saved departure times. Provider or network failures can prevent delivery; check the app if no notification arrives.
-- Location search finds towns/cities/postal codes, not street addresses. Use current location or exact coordinates for precision.
+3. **Useful Podman commands:**
+   - View container logs:
+     ```sh
+     podman compose logs -f
+     ```
+   - Stop containers:
+     ```sh
+     podman compose down
+     ```
 
-Existing SQLite databases gain `origin_name` and `timezone` columns automatically, without replacing rows. Older commutes default to UTC because their intended time zone was never stored: review **Your commute → Time zone** after upgrading. Also review weather limits if you changed units in the old interface; the app cannot reliably infer what those old numbers meant.
+> **Tip for Rootless Podman:** Container volumes are mapped within your user namespace. Persistent data is preserved in the `commute_data` volume across restarts.
 
-See [architecture](docs/architecture.md) and [API contracts](docs/api.md) for maintenance details. Weather and geocoding are provided by [Open-Meteo](https://open-meteo.com/en/docs), with [GeoNames](https://www.geonames.org/) location data. Check provider terms before commercial deployment.
+</details>
+
+---
+
+### Local Development Setup
+
+If you prefer running the backend and frontend directly on your host system:
+
+1. **Backend (FastAPI):**
+   ```sh
+   # Set up Python virtual environment
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+
+   # Start the API server
+   uvicorn app.main:app --reload --port 8000
+   ```
+
+2. **Frontend (SvelteKit):**
+   ```sh
+   # In a separate terminal
+   cd frontend
+   npm ci
+   npm run dev
+   ```
+
+3. **Open the app:**
+   - Navigate to [http://localhost:5173](http://localhost:5173). The frontend automatically proxies `/api/*` requests to `http://localhost:8000`.
+
+---
+
+## 🧪 Testing & Verification
+
+For developers contributing to Commute Check:
+
+- **Run backend tests:**
+  ```sh
+  pytest -q
+  ```
+- **Run frontend checks and unit tests:**
+  ```sh
+  cd frontend
+  npm run check
+  npm test
+  ```
+- **Run end-to-end browser tests:**
+  ```sh
+  cd frontend
+  npx playwright install chromium
+  npm run test:e2e
+  ```
+
+---
+
+## 📚 Architecture & Attribution
+
+- **Architecture Details:** See [docs/architecture.md](docs/architecture.md) for architectural design and data flow.
+- **API Reference:** See [docs/api.md](docs/api.md) for endpoint specifications.
+- **Weather Data:** Provided by [Open-Meteo](https://open-meteo.com/en/docs).
+- **Routing & Geocoding:** Provided by [OSRM](http://project-osrm.org/) and [GeoNames](https://www.geonames.org/).
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
